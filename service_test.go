@@ -72,6 +72,15 @@ func TestLimitInvoice(t *testing.T) {
 
 			service := invoice_service.NewInvoiceService(&db, ware_cache.NewLocalCache())
 
+			t.Run("test get configuration if doesn't exist", func(t *testing.T) {
+				limit, err := service.GetLimitInvoice(t.Context(), &invoice_iface.TeamLimitInvoiceReq{
+					TeamId:    3,
+					ForTeamId: 1,
+				})
+				assert.Nil(t, err)
+				assert.True(t, limit.CanCreateOrder)
+			})
+
 			t.Run("test create configuration default", func(t *testing.T) {
 				_, err := service.SetLimitInvoice(t.Context(), &invoice_iface.SetLimitInvoiceReq{
 					TeamId:    1,

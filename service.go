@@ -65,7 +65,7 @@ func (i *invoiceServiceImpl) GetLimitInvoice(ctx context.Context, pay *invoice_i
 
 	err = i.db.Raw(`
 select 
-	sum(amount) as amount 
+	(case when sum(amount) is null then 0 else sum(amount) end) as amount 
 from invoices i 
 where 
 	i.status = 'not_paid'
@@ -97,6 +97,14 @@ where
 	limitter := configmap[invoice_iface.LimitType_DEFAULT]
 	if configmap[invoice_iface.LimitType_TEAM] != nil {
 		limitter = configmap[invoice_iface.LimitType_TEAM]
+	}
+
+	if limitter == nil {
+		limitter = &InvoiceLimitConfiguration{
+			LimitType: invoice_iface.LimitType_DEFAULT,
+			TeamID:    pay.TeamId,
+			Threshold: 0,
+		}
 	}
 
 	res.LimitThressholdAmount = limitter.Threshold
