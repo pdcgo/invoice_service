@@ -44,9 +44,9 @@ func (i *invoiceServiceImpl) GetLimitInvoice(ctx context.Context, pay *invoice_i
 		return nil, errors.New("team_id kosong")
 	}
 
-	if pay.ForTeamId == 0 {
-		return nil, errors.New("for_team_id kosong")
-	}
+	// if pay.ForTeamId == 0 {
+	// 	return nil, errors.New("for_team_id kosong")
+	// }
 
 	res := invoice_iface.TeamLimitInvoiceRes{
 		TeamId:              pay.TeamId,

@@ -89,6 +89,15 @@ func TestLimitInvoice(t *testing.T) {
 
 				assert.Nil(t, err)
 
+				t.Run("test get configuration default", func(t *testing.T) {
+					limit, err := service.GetLimitInvoice(t.Context(), &invoice_iface.TeamLimitInvoiceReq{
+						TeamId: 1,
+					})
+					assert.Nil(t, err)
+					assert.NotNil(t, limit)
+					assert.Equal(t, invoice_iface.LimitType_DEFAULT, limit.LimitType)
+				})
+
 				t.Run("validasi data", func(t *testing.T) {
 					t.Run("dengan team_id 0", func(t *testing.T) {
 						_, err := service.SetLimitInvoice(t.Context(), &invoice_iface.SetLimitInvoiceReq{
