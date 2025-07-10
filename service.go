@@ -225,7 +225,6 @@ func (i *invoiceServiceImpl) SetLimitInvoice(ctx context.Context, pay *invoice_i
 	conf := InvoiceLimitConfiguration{
 		LimitType: invoice_iface.LimitType_DEFAULT,
 		TeamID:    pay.TeamId,
-		Threshold: pay.Threshold,
 	}
 
 	res := invoice_iface.SetLimitInvoiceRes{
@@ -237,22 +236,27 @@ func (i *invoiceServiceImpl) SetLimitInvoice(ctx context.Context, pay *invoice_i
 		conf.LimitType = invoice_iface.LimitType_TEAM
 	}
 
-	err = i.db.Model(&InvoiceLimitConfiguration{}).
+	confSqlQuery := i.db.Model(&InvoiceLimitConfiguration{}).
 		Where("team_id = ?", pay.TeamId).
-		Where("limit_type = ?", conf.LimitType).
+		Where("limit_type = ?", conf.LimitType)
+	if conf.ForTeamID != nil {
+		confSqlQuery = confSqlQuery.Where("for_team_id = ?", pay.ForTeamId)
+	}
+
+	err = confSqlQuery.
 		First(&conf).
 		Error
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			err = i.db.Save(&conf).Error
-			if err != nil {
-				return nil, err
-			}
-		} else {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
+	}
 
+	conf.Threshold = pay.Threshold
+	err = i.db.Save(&conf).Error
+	if err != nil {
+		return nil, err
 	}
 
 	return &res, nil

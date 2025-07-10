@@ -114,7 +114,6 @@ func TestLimitInvoice(t *testing.T) {
 						})
 						assert.NotNil(t, err)
 					})
-
 				})
 
 				t.Run("check data", func(t *testing.T) {
@@ -130,7 +129,6 @@ func TestLimitInvoice(t *testing.T) {
 					}
 
 				})
-
 			})
 
 			t.Run("test dengan for team", func(t *testing.T) {
@@ -170,6 +168,31 @@ func TestLimitInvoice(t *testing.T) {
 					}
 				})
 
+				t.Run("test update limit invoice", func(t *testing.T) {
+					_, err := service.SetLimitInvoice(t.Context(), &invoice_iface.SetLimitInvoiceReq{
+						TeamId:    1,
+						ForTeamId: &forTeamID,
+						Threshold: 12_000,
+					})
+					assert.Nil(t, err)
+
+					t.Run("test data", func(t *testing.T) {
+						confs := []*invoice_service.InvoiceLimitConfiguration{}
+						err := db.
+							Model(&invoice_service.InvoiceLimitConfiguration{}).
+							Where("limit_type = ?", invoice_iface.LimitType_TEAM).
+							Find(&confs).Error
+						assert.Nil(t, err)
+
+						assert.Len(t, confs, 1)
+						for _, conf := range confs {
+							assert.Equal(t, invoice_iface.LimitType_TEAM, conf.LimitType)
+							assert.Equal(t, int64(1), conf.TeamID)
+							assert.Equal(t, int64(2), *conf.ForTeamID)
+							assert.Equal(t, float64(12_000), conf.Threshold)
+						}
+					})
+				})
 			})
 
 			t.Run("test list data konfigurasi", func(t *testing.T) {
@@ -203,7 +226,27 @@ func TestLimitInvoice(t *testing.T) {
 					})
 					assert.Nil(t, err)
 				})
+			})
 
+			t.Run("test set more limit invoice", func(t *testing.T) {
+				var forTeamID int64 = 3
+				_, err := service.SetLimitInvoice(t.Context(), &invoice_iface.SetLimitInvoiceReq{
+					TeamId:    1,
+					ForTeamId: &forTeamID,
+					Threshold: 4_000,
+				})
+				assert.Nil(t, err)
+
+				t.Run("test check data", func(t *testing.T) {
+					confs := []*invoice_service.InvoiceLimitConfiguration{}
+					err := db.
+						Model(&invoice_service.InvoiceLimitConfiguration{}).
+						Where("limit_type = ?", invoice_iface.LimitType_TEAM).
+						Find(&confs).Error
+					assert.Nil(t, err)
+
+					assert.Len(t, confs, 2)
+				})
 			})
 
 			t.Run("test delete config", func(t *testing.T) {
@@ -225,5 +268,4 @@ func TestLimitInvoice(t *testing.T) {
 			})
 		},
 	)
-
 }
