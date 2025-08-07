@@ -56,25 +56,33 @@ func (i *invoiceQueryImpl) getQuery() *gorm.DB {
 
 // From implements InvoiceQuery.
 func (i *invoiceQueryImpl) From(fromID uint) InvoiceQuery {
-	i.query = i.query.Where("from_team_id = ?", fromID)
+	if fromID != 0 {
+		i.query = i.query.Where("from_team_id = ?", fromID)
+	}
 	return i
 }
 
 // To implements InvoiceQuery.
 func (i *invoiceQueryImpl) To(toID uint) InvoiceQuery {
-	i.query = i.query.Where("to_team_id = ?", toID)
+	if toID != 0 {
+		i.query = i.query.Where("to_team_id = ?", toID)
+	}
 	return i
 }
 
 // TxID implements InvoiceQuery.
 func (i *invoiceQueryImpl) TxID(txID uint) InvoiceQuery {
-	i.query = i.query.Where("tx_id = ?", txID)
+	if txID != 0 {
+		i.query = i.query.Where("tx_id = ?", txID)
+	}
 	return i
 }
 
 // Type implements InvoiceQuery.
 func (i *invoiceQueryImpl) Type(tipe db_models.InvoiceType) InvoiceQuery {
-	i.query = i.query.Where("type = ?", tipe)
+	if tipe != "" {
+		i.query = i.query.Where("type = ?", tipe)
+	}
 	return i
 }
 
