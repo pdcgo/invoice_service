@@ -28,6 +28,8 @@ type PaymentSubmissionMutation interface {
 	CreateSubmission(invoiceQuery invoice_query.InvoiceQuery, receiptFile string, amount float64) error
 	AcceptSubmission() error
 	RejectSubmission() error
+
+	GetData() *db_models.PaymentSubmission
 }
 
 type paymentSubmissionMutationImpl struct {
@@ -36,6 +38,11 @@ type paymentSubmissionMutationImpl struct {
 	agent identity_iface.Agent
 
 	data *db_models.PaymentSubmission
+}
+
+// GetData implements PaymentSubmissionMutation.
+func (p *paymentSubmissionMutationImpl) GetData() *db_models.PaymentSubmission {
+	return p.data
 }
 
 // CreateSubmissionFromInvoice implements PaymentSubmissionMutation.
