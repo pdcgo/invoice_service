@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/pdcgo/shared/db_models"
@@ -257,6 +258,106 @@ func (i *invoiceServiceImpl) SetLimitInvoice(ctx context.Context, pay *invoice_i
 	err = i.db.Save(&conf).Error
 	if err != nil {
 		return nil, err
+	}
+
+	return &res, nil
+}
+
+func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *invoice_iface.DeterminedConfigListReq) (*invoice_iface.DeterminedConfigListRes, error) {
+	data := []*invoice_iface.DetermineConfigItem{}
+	err := i.
+		db.Debug().
+		Model(&InvoiceLimitConfiguration{}).
+		Select([]string{
+			"id",
+			"limit_type",
+			"team_id",
+			"for_team_id",
+			"threshold",
+		}).
+		Where("for_team_id = ?", pay.TeamId).
+		Where("team_id IN (?)", pay.FromTeamIds).
+		// Or("(limit_type = ? and team_id <> ?)", invoice_iface.LimitType_DEFAULT, pay.TeamId).
+		Find(&data).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	err = db_tools.Preload(
+		data,
+		func(i int, item *invoice_iface.DetermineConfigItem) []int64 {
+			if item.ForTeamId != nil {
+				return []int64{*item.ForTeamId, item.TeamId}
+			}
+			return []int64{item.TeamId}
+		},
+		func(ids []int64) (*gorm.DB, func(*invoice_iface.TeamInfo) int64) {
+			q := i.db.
+				Model(&db_models.Team{}).
+				Where("id in ?", ids)
+
+			return q,
+				func(p *invoice_iface.TeamInfo) int64 {
+					return p.Id
+				}
+		},
+		func(i int, datamap map[int64]*invoice_iface.TeamInfo) {
+			data[i].Team = datamap[data[i].TeamId]
+
+			if data[i].ForTeamId != nil {
+				data[i].ForTeam = datamap[*data[i].ForTeamId]
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = db_tools.Preload(
+		data,
+		func(i int, item *invoice_iface.DetermineConfigItem) []int64 {
+			return []int64{item.TeamId}
+		},
+		func(ids []int64) (*gorm.DB, func(item *invoice_iface.TeamInvoiceStatus) int64) {
+			q := i.db.Debug().
+				Model(&db_models.Invoice{}).
+				Select([]string{
+					"to_team_id",
+					"SUM(CASE WHEN (has_submission IS NULL OR has_submission = false) THEN amount END) AS unpaid_amount",
+					"SUM(CASE WHEN has_submission = true THEN amount END) AS submission_amount",
+					"SUM(amount) AS total",
+				}).
+				Where("from_team_id = ?", pay.TeamId).
+				Where("to_team_id IN (?)", ids).
+				Where("status = ?", db_models.InvoiceNotPaid).
+				Group("to_team_id")
+
+			return q, func(p *invoice_iface.TeamInvoiceStatus) int64 {
+				return p.ToTeamId
+			}
+		},
+		func(i int, datamap map[int64]*invoice_iface.TeamInvoiceStatus) {
+			toTeamID := data[i].TeamId
+
+			log.Println(datamap)
+
+			invoiceStatus, ok := datamap[toTeamID]
+			if !ok {
+				data[i].InvoiceStatus = &invoice_iface.TeamInvoiceStatus{
+					ToTeamId: toTeamID,
+				}
+				return
+			}
+			data[i].InvoiceStatus = invoiceStatus
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	res := invoice_iface.DeterminedConfigListRes{
+		Data: data,
 	}
 
 	return &res, nil
