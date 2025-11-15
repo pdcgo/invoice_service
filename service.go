@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/pdcgo/shared/db_models"
@@ -265,8 +264,10 @@ func (i *invoiceServiceImpl) SetLimitInvoice(ctx context.Context, pay *invoice_i
 
 func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *invoice_iface.DeterminedConfigListReq) (*invoice_iface.DeterminedConfigListRes, error) {
 	data := []*invoice_iface.DetermineConfigItem{}
+
+	tempData := []*InvoiceLimitConfiguration{}
 	err := i.
-		db.Debug().
+		db.
 		Model(&InvoiceLimitConfiguration{}).
 		Select([]string{
 			"id",
@@ -278,10 +279,24 @@ func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *in
 		Where("for_team_id = ?", pay.TeamId).
 		Where("team_id IN (?)", pay.FromTeamIds).
 		// Or("(limit_type = ? and team_id <> ?)", invoice_iface.LimitType_DEFAULT, pay.TeamId).
-		Find(&data).
+		Find(&tempData).
 		Error
 	if err != nil {
 		return nil, err
+	}
+
+	if len(tempData) == 0 {
+		return &invoice_iface.DeterminedConfigListRes{}, nil
+	}
+
+	for _, value := range tempData {
+		data = append(data, &invoice_iface.DetermineConfigItem{
+			Id:        int64(value.ID),
+			LimitType: value.LimitType,
+			TeamId:    value.TeamID,
+			ForTeamId: value.ForTeamID,
+			Threshold: value.Threshold,
+		})
 	}
 
 	err = db_tools.Preload(
@@ -320,7 +335,7 @@ func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *in
 			return []int64{item.TeamId}
 		},
 		func(ids []int64) (*gorm.DB, func(item *invoice_iface.TeamInvoiceStatus) int64) {
-			q := i.db.Debug().
+			q := i.db.
 				Model(&db_models.Invoice{}).
 				Select([]string{
 					"to_team_id",
@@ -339,8 +354,6 @@ func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *in
 		},
 		func(i int, datamap map[int64]*invoice_iface.TeamInvoiceStatus) {
 			toTeamID := data[i].TeamId
-
-			log.Println(datamap)
 
 			invoiceStatus, ok := datamap[toTeamID]
 			if !ok {
