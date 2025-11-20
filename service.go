@@ -286,7 +286,9 @@ func (i *invoiceServiceImpl) DeterminedLimitInvoice(ctx context.Context, pay *in
 	}
 
 	if len(tempData) == 0 {
-		return &invoice_iface.DeterminedConfigListRes{}, nil
+		return &invoice_iface.DeterminedConfigListRes{
+			Data: data,
+		}, nil
 	}
 
 	for _, value := range tempData {
