@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Deprecated: pindah model
 type InvoiceLimitConfiguration struct {
 	ID        uint                    `gorm:"primarykey" json:"id"`
 	LimitType invoice_iface.LimitType `json:"limit_type"`
