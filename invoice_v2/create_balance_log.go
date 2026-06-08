@@ -1,0 +1,252 @@
+package invoice_v2
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"connectrpc.com/connect"
+	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
+	"github.com/pdcgo/invoice_service/invoice_models"
+	"github.com/pdcgo/user_service/access_interceptors"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+// CreateBalanceLog implements [invoice_ifaceconnect.InvoiceServiceHandler].
+//
+// It posts a double-entry balance change for the (team, for_team) pair: the
+// primary leg moves balance_type by +amount, and the mirrored counter leg moves
+// the opposite balance_type (with swapped teams) by -amount. Both legs update
+// the running TeamBalance, append an immutable BalanceChangeLog, and accumulate
+// a per-day TeamBalanceDailyLog. The whole thing runs in one transaction.
+func (s *invoiceServiceImpl) CreateBalanceLog(
+	ctx context.Context,
+	req *connect.Request[invoice_iface.CreateBalanceLogRequest],
+) (*connect.Response[invoice_iface.CreateBalanceLogResponse], error) {
+	pay := req.Msg
+
+	if pay.TeamId == 0 || pay.ForTeamId == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id are required"))
+	}
+	if pay.TeamId == pay.ForTeamId {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id must differ"))
+	}
+	if pay.ChangeAmount <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("change_amount must be greater than zero"))
+	}
+	if pay.ChangeType == invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_UNSPECIFIED {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("change_type is required"))
+	}
+	if _, err := oppositeBalance(pay.BalanceType); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// The caller (set by the access interceptor) owns both ledger legs.
+	caller, err := access_interceptors.GetIdentityFromCtx(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+	createdByID := uint64(caller.IdentityId)
+
+	now := time.Now()
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return postDoubleEntry(tx, pay.TeamId, pay.ForTeamId, pay.BalanceType, pay.ChangeType, pay.ChangeAmount, pay.Note, createdByID, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&invoice_iface.CreateBalanceLogResponse{}), nil
+}
+
+// postDoubleEntry posts a signed-mirror double entry for the (teamID, forTeamID)
+// pair: +amount on balance type bt, and -amount on the opposite type with the
+// teams swapped.
+func postDoubleEntry(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	bt invoice_iface.BalanceType,
+	changeType invoice_iface.BalanceChangeType,
+	amount float64,
+	note string,
+	createdByID uint64,
+	now time.Time,
+) error {
+	counterType, err := oppositeBalance(bt)
+	if err != nil {
+		return err
+	}
+	if err := postEntry(tx, teamID, forTeamID, bt, changeType, amount, note, createdByID, now); err != nil {
+		return err
+	}
+	return postEntry(tx, forTeamID, teamID, counterType, changeType, -amount, note, createdByID, now)
+}
+
+// postEntry applies a single signed delta to one (team, for_team, balance_type)
+// account: it locks/loads (or creates) the TeamBalance, writes a BalanceChangeLog
+// with the resulting balance, and accumulates the day's TeamBalanceDailyLog.
+func postEntry(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	bt invoice_iface.BalanceType,
+	changeType invoice_iface.BalanceChangeType,
+	delta float64,
+	note string,
+	createdByID uint64,
+	now time.Time,
+) error {
+	bal, err := lockOrCreateBalance(tx, teamID, forTeamID, bt, now)
+	if err != nil {
+		return err
+	}
+
+	prev := bal.Balance
+	newBal := prev + delta
+
+	if err := tx.Model(&invoice_models.TeamBalance{}).
+		Where("id = ?", bal.ID).
+		Updates(map[string]interface{}{
+			"balance":    newBal,
+			"updated_at": now,
+		}).Error; err != nil {
+		return err
+	}
+
+	logEntry := invoice_models.BalanceChangeLog{
+		TeamID:       teamID,
+		ForTeamID:    forTeamID,
+		ChangeType:   changeType,
+		ChangeAmount: delta,
+		BalanceType:  bt,
+		Balance:      newBal,
+		Note:         note,
+		CreatedByID:  createdByID,
+		CreatedAt:    now,
+	}
+	if err := tx.Create(&logEntry).Error; err != nil {
+		return err
+	}
+
+	return upsertDailyLog(tx, teamID, forTeamID, bt, prev, newBal, delta, now)
+}
+
+// upsertDailyLog accumulates the day's change for the account: on the first
+// change of the day it records StartBalance (the balance before this change);
+// subsequent changes add to ChangeAmount and move EndBalance.
+func upsertDailyLog(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	bt invoice_iface.BalanceType,
+	prev, newBal, delta float64,
+	now time.Time,
+) error {
+	day := startOfLocalDay(now)
+
+	// TeamBalanceDailyLog has no primary key in the model, so use Find +
+	// RowsAffected (First would add ORDER BY <pk> and fail on a key-less model).
+	var daily invoice_models.TeamBalanceDailyLog
+	res := lockForUpdate(tx).
+		Where("day = ? AND team_id = ? AND for_team_id = ? AND balance_type = ?", day, teamID, forTeamID, bt).
+		Limit(1).
+		Find(&daily)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		return tx.Model(&invoice_models.TeamBalanceDailyLog{}).
+			Where("day = ? AND team_id = ? AND for_team_id = ? AND balance_type = ?", day, teamID, forTeamID, bt).
+			Updates(map[string]interface{}{
+				"change_amount": daily.ChangeAmount + delta,
+				"end_balance":   newBal,
+				"updated_at":    now,
+			}).Error
+	}
+
+	daily = invoice_models.TeamBalanceDailyLog{
+		Day:          day,
+		TeamID:       teamID,
+		ForTeamID:    forTeamID,
+		BalanceType:  bt,
+		StartBalance: prev,
+		EndBalance:   newBal,
+		ChangeAmount: delta,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	return tx.Create(&daily).Error
+}
+
+// lockOrCreateBalance locks the TeamBalance row for (teamID, forTeamID, bt) for
+// update, creating a zero row if none exists.
+func lockOrCreateBalance(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	bt invoice_iface.BalanceType,
+	now time.Time,
+) (*invoice_models.TeamBalance, error) {
+	var bal invoice_models.TeamBalance
+	err := lockForUpdate(tx).
+		Where("team_id = ? AND for_team_id = ? AND balance_type = ?", teamID, forTeamID, bt).
+		First(&bal).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		bal = invoice_models.TeamBalance{
+			TeamID:      teamID,
+			ForTeamID:   forTeamID,
+			BalanceType: bt,
+			Balance:     0,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := tx.Create(&bal).Error; err != nil {
+			return nil, err
+		}
+	}
+	return &bal, nil
+}
+
+// adjustPending moves the PendingPaymentAmount of one (team, for_team,
+// balance_type) account by delta (locking/creating the row as needed).
+func adjustPending(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	bt invoice_iface.BalanceType,
+	delta float64,
+	now time.Time,
+) error {
+	bal, err := lockOrCreateBalance(tx, teamID, forTeamID, bt, now)
+	if err != nil {
+		return err
+	}
+	return tx.Model(&invoice_models.TeamBalance{}).
+		Where("id = ?", bal.ID).
+		Updates(map[string]interface{}{
+			"pending_payment_amount": bal.PendingPaymentAmount + delta,
+			"updated_at":             now,
+		}).Error
+}
+
+// oppositeBalance returns the mirrored balance type for the double entry.
+func oppositeBalance(bt invoice_iface.BalanceType) (invoice_iface.BalanceType, error) {
+	switch bt {
+	case invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE:
+		return invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, nil
+	case invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE:
+		return invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE, nil
+	default:
+		return invoice_iface.BalanceType_BALANCE_TYPE_UNSPECIFIED, errors.New("balance_type must be PAYABLE or RECEIVABLE")
+	}
+}
+
+// startOfLocalDay truncates t to midnight in its own (local) location.
+func startOfLocalDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// lockForUpdate applies SELECT ... FOR UPDATE row locking.
+func lockForUpdate(tx *gorm.DB) *gorm.DB {
+	return tx.Clauses(clause.Locking{Strength: "UPDATE"})
+}

@@ -3,16 +3,22 @@ module github.com/pdcgo/invoice_service
 go 1.25.0
 
 require (
-	buf.build/go/protovalidate v1.2.0
+	connectrpc.com/connect v1.19.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
-	github.com/pdcgo/event_source v1.0.8
+	github.com/pdcgo/san_collection v0.0.0-00010101000000-000000000000
 	github.com/pdcgo/schema v1.0.132
 	github.com/pdcgo/shared v1.0.134
+	github.com/pdcgo/user_service v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.11.1
 )
 
+replace github.com/pdcgo/user_service => ../user_service
+
+replace github.com/pdcgo/san_collection => ../pkgs/san_collection
+
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
+	buf.build/go/protovalidate v1.0.1 // indirect
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.18.2 // indirect
@@ -20,11 +26,15 @@ require (
 	cloud.google.com/go/bigquery v1.74.0 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.7.0 // indirect
-	cloud.google.com/go/pubsub/v2 v2.6.0 // indirect
 	cloud.google.com/go/secretmanager v1.16.0 // indirect
-	connectrpc.com/connect v1.19.1 // indirect
+	cloud.google.com/go/trace v1.11.7 // indirect
+	connectrpc.com/grpcreflect v1.3.0 // indirect
+	connectrpc.com/otelconnect v0.8.0 // indirect
+	connectrpc.com/validate v0.6.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/GoogleCloudPlatform/cloudsql-proxy v1.37.10 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.30.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.54.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
@@ -51,7 +61,7 @@ require (
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/cel-go v0.28.0 // indirect
+	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/flatbuffers v25.9.23+incompatible // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -82,18 +92,19 @@ require (
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/stoewer/go-strcase v1.3.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/tkrajina/typescriptify-golang-structs v0.2.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/wargasipil/data_processing v0.0.0-20260420085126-0b978af04e6f // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
-	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/mock v0.5.0 // indirect
@@ -127,6 +138,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401001100-f93e5f3e9f0f // indirect
 	google.golang.org/grpc v1.80.0 // indirect
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.11 // indirect
 	gorm.io/gorm v1.31.1
 )
