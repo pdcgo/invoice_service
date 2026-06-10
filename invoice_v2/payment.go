@@ -13,8 +13,8 @@ import (
 
 // loadPendingPayment locks the payment row, verifies it belongs to the
 // (teamID, forTeamID) pair, and requires it to be PENDING. Used by accept/reject.
-func loadPendingPayment(tx *gorm.DB, paymentID, teamID, forTeamID uint64) (*invoice_models.Payment, error) {
-	var p invoice_models.Payment
+func loadPendingPayment(tx *gorm.DB, paymentID, teamID, forTeamID uint64) (*invoice_models.InvoicePayment, error) {
+	var p invoice_models.InvoicePayment
 	err := lockForUpdate(tx).Where("id = ?", paymentID).First(&p).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -32,7 +32,7 @@ func loadPendingPayment(tx *gorm.DB, paymentID, teamID, forTeamID uint64) (*invo
 }
 
 // toProtoPayment maps a stored Payment to its proto representation.
-func toProtoPayment(p *invoice_models.Payment) *invoice_iface.Payment {
+func toProtoPayment(p *invoice_models.InvoicePayment) *invoice_iface.Payment {
 	out := &invoice_iface.Payment{
 		Id:          p.ID,
 		TeamId:      p.TeamID,

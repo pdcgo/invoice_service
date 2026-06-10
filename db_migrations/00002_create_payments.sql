@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE TABLE payments (
+CREATE TABLE invoice_payments (
     id              BIGSERIAL        PRIMARY KEY,
     team_id         BIGINT           NOT NULL,
     for_team_id     BIGINT           NOT NULL,
@@ -15,12 +15,12 @@ CREATE TABLE payments (
     rejected_at     TIMESTAMPTZ,
     updated_at      TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_payments_team_id     ON payments (team_id);
-CREATE INDEX idx_payments_for_team_id ON payments (for_team_id);
-CREATE INDEX idx_payments_status      ON payments (status);
+CREATE INDEX idx_invoice_payments_team_id     ON invoice_payments (team_id);
+CREATE INDEX idx_invoice_payments_for_team_id ON invoice_payments (for_team_id);
+CREATE INDEX idx_invoice_payments_status      ON invoice_payments (status);
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS invoice_payments;
 -- +goose StatementEnd

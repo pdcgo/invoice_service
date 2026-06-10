@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/invoice_service/invoice_models"
+	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/user_service/access_interceptors"
 	"gorm.io/gorm"
 )
@@ -50,7 +50,7 @@ func (s *invoiceServiceImpl) AcceptPayment(
 			return err
 		}
 
-		return tx.Model(&invoice_models.Payment{}).
+		return tx.Model(&invoice_models.InvoicePayment{}).
 			Where("id = ?", p.ID).
 			Updates(map[string]interface{}{
 				"status":          invoice_iface.PaymentStatus_PAYMENT_STATUS_ACCEPTED,

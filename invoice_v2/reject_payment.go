@@ -43,7 +43,7 @@ func (s *invoiceServiceImpl) RejectPayment(
 			return err
 		}
 
-		return tx.Model(&invoice_models.Payment{}).
+		return tx.Model(&invoice_models.InvoicePayment{}).
 			Where("id = ?", p.ID).
 			Updates(map[string]interface{}{
 				"status":          invoice_iface.PaymentStatus_PAYMENT_STATUS_REJECTED,

@@ -33,7 +33,7 @@ func (s *invoiceServiceImpl) CreatePayment(
 	}
 
 	now := time.Now()
-	payment := invoice_models.Payment{
+	payment := invoice_models.InvoicePayment{
 		TeamID:      pay.TeamId,
 		ForTeamID:   pay.ForTeamId,
 		Amount:      pay.Amount,

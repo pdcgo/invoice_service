@@ -20,13 +20,14 @@ type RegisterHandler func() ServiceReflectNames
 // gRPC-reflection service names. Only the v2 service is registered here; the
 // legacy grpc-gateway service is intentionally left out. The access interceptor
 // enforces each request's (role_base.v1.request_policy) and injects the caller
-// identity into context.
+// identity into context. It also mounts the Pub/Sub push endpoint.
 func NewRegister(
 	mux *http.ServeMux,
 	db *gorm.DB,
 	cfg *configs.AppConfig,
 	defaultInterceptor custom_connect.DefaultInterceptor,
 	cacheMgr san_caches.CacheManager,
+	invoicePushHttpHandler InvoicePushHttpHandler,
 ) RegisterHandler {
 	return func() ServiceReflectNames {
 		grpcReflects := ServiceReflectNames{}
@@ -39,6 +40,8 @@ func NewRegister(
 		)
 		mux.Handle(path, handler)
 		grpcReflects = append(grpcReflects, invoice_ifaceconnect.InvoiceServiceName)
+
+		mux.HandleFunc("/invoice/push", invoicePushHttpHandler)
 
 		return grpcReflects
 	}

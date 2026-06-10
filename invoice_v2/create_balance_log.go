@@ -26,22 +26,6 @@ func (s *invoiceServiceImpl) CreateBalanceLog(
 ) (*connect.Response[invoice_iface.CreateBalanceLogResponse], error) {
 	pay := req.Msg
 
-	if pay.TeamId == 0 || pay.ForTeamId == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id are required"))
-	}
-	if pay.TeamId == pay.ForTeamId {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id must differ"))
-	}
-	if pay.ChangeAmount <= 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("change_amount must be greater than zero"))
-	}
-	if pay.ChangeType == invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_UNSPECIFIED {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("change_type is required"))
-	}
-	if _, err := oppositeBalance(pay.BalanceType); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
 	// The caller (set by the access interceptor) owns both ledger legs.
 	caller, err := access_interceptors.GetIdentityFromCtx(ctx)
 	if err != nil {
@@ -51,13 +35,46 @@ func (s *invoiceServiceImpl) CreateBalanceLog(
 
 	now := time.Now()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return postDoubleEntry(tx, pay.TeamId, pay.ForTeamId, pay.BalanceType, pay.ChangeType, pay.ChangeAmount, pay.Note, createdByID, now)
+		return PostBalanceLog(tx, pay.TeamId, pay.ForTeamId, pay.ChangeType, pay.ChangeAmount, pay.BalanceType, pay.Note, createdByID, now)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&invoice_iface.CreateBalanceLogResponse{}), nil
+}
+
+// PostBalanceLog validates and posts a double-entry balance change within the
+// caller's transaction. It is the reusable core of the CreateBalanceLog RPC, so
+// it can be composed into any db.Transaction scope (e.g. event/push handlers).
+// It takes createdByID/now as params (no ctx identity lookup) so non-RPC callers
+// can supply a system id and their own clock.
+func PostBalanceLog(
+	tx *gorm.DB,
+	teamID, forTeamID uint64,
+	changeType invoice_iface.BalanceChangeType,
+	changeAmount float64,
+	balanceType invoice_iface.BalanceType,
+	note string,
+	createdByID uint64,
+	now time.Time,
+) error {
+	if teamID == 0 || forTeamID == 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id are required"))
+	}
+	if teamID == forTeamID {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id must differ"))
+	}
+	if changeAmount <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("change_amount must be greater than zero"))
+	}
+	if changeType == invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_UNSPECIFIED {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("change_type is required"))
+	}
+	if _, err := oppositeBalance(balanceType); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return postDoubleEntry(tx, teamID, forTeamID, balanceType, changeType, changeAmount, note, createdByID, now)
 }
 
 // postDoubleEntry posts a signed-mirror double entry for the (teamID, forTeamID)

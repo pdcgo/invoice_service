@@ -30,10 +30,10 @@ func (s *invoiceServiceImpl) ListPayment(
 	}
 	db := s.db.WithContext(ctx)
 
-	var rows []*invoice_models.Payment
+	var rows []*invoice_models.InvoicePayment
 	paginated, pageInfo, err := db_connect.SetPaginationQuery(db, func() (*gorm.DB, error) {
 		query := db.
-			Model(&invoice_models.Payment{}).
+			Model(&invoice_models.InvoicePayment{}).
 			Scopes(func(d *gorm.DB) *gorm.DB {
 				d = d.Where("team_id = ?", pay.TeamId)
 				if pay.ForTeamId > 0 {

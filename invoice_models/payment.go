@@ -6,10 +6,11 @@ import (
 	"github.com/pdcgo/schema/services/invoice_iface/v2"
 )
 
-// Payment is a settlement between two teams: team_id pays for_team_id. It starts
-// PENDING on create and is moved to ACCEPTED / REJECTED via the accept/reject
-// RPCs (which also record who completed it).
-type Payment struct {
+// InvoicePayment is a settlement between two teams: team_id pays for_team_id. It
+// starts PENDING on create and is moved to ACCEPTED / REJECTED via the
+// accept/reject RPCs (which also record who completed it). The name avoids
+// colliding with the legacy `payments` table (this maps to `invoice_payments`).
+type InvoicePayment struct {
 	ID            uint64 `gorm:"primaryKey"`
 	TeamID        uint64 `gorm:"index;not null"`
 	ForTeamID     uint64 `gorm:"index;not null"`

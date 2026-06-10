@@ -35,7 +35,7 @@ func TestPayment(t *testing.T) {
 		func(t *testing.T) {
 			scenario(t, func(tx *gorm.DB) {
 				assert.NoError(t, tx.AutoMigrate(
-					&invoice_models.Payment{},
+					&invoice_models.InvoicePayment{},
 					&invoice_models.TeamBalance{},
 					&invoice_models.BalanceChangeLog{},
 					&invoice_models.TeamBalanceDailyLog{},
@@ -80,7 +80,7 @@ func TestPayment(t *testing.T) {
 					assert.Equal(t, float64(30), rcv.PendingPaymentAmount)
 					assert.Equal(t, float64(0), rcv.Balance)
 
-					var p invoice_models.Payment
+					var p invoice_models.InvoicePayment
 					assert.NoError(t, tx.First(&p, id).Error)
 					assert.Equal(t, pending, p.Status)
 					assert.Equal(t, uint64(7), p.CreatedByID)
@@ -107,7 +107,7 @@ func TestPayment(t *testing.T) {
 						Count(&logs).Error)
 					assert.Equal(t, int64(1), logs)
 
-					var p invoice_models.Payment
+					var p invoice_models.InvoicePayment
 					assert.NoError(t, tx.First(&p, id).Error)
 					assert.Equal(t, accepted, p.Status)
 					assert.NotNil(t, p.AcceptedAt)
@@ -133,7 +133,7 @@ func TestPayment(t *testing.T) {
 					assert.Equal(t, float64(0), pyb.Balance)
 					assert.Equal(t, float64(0), pyb.PendingPaymentAmount)
 
-					var p invoice_models.Payment
+					var p invoice_models.InvoicePayment
 					assert.NoError(t, tx.First(&p, id).Error)
 					assert.Equal(t, rejected, p.Status)
 					assert.NotNil(t, p.RejectedAt)
