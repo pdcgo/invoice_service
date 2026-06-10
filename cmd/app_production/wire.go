@@ -22,6 +22,7 @@ func InitializeApp() (*cli.Command, error) {
 		NewDatabase,
 		NewRedisDatabase,
 		NewCacheManager,
+		NewProjectConfig,
 		invoice_service.NewInvoicePushHandler,
 		invoice_service.NewInvoicePushHttpHandler,
 		invoice_service.NewRegister,

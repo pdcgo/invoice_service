@@ -10,9 +10,22 @@ import (
 	"github.com/pdcgo/invoice_service/invoice_v2"
 	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/schema/services/selling_iface/v1"
+	"github.com/pdcgo/schema/services/warehouse_iface/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"gorm.io/gorm"
 )
+
+type ProjectConfig struct {
+	ProjectID string `env:"GOOGLE_CLOUD_PROJECT"`
+}
+
+func (projectCfg *ProjectConfig) PubsubTopicPath(topic string) string {
+	return fmt.Sprintf("projects/%s/topics/%s", projectCfg.ProjectID, topic)
+}
+
+func (projectCfg *ProjectConfig) PubsubSubscriberPath(sub string) string {
+	return fmt.Sprintf("projects/%s/subscriptions/%s", projectCfg.ProjectID, sub)
+}
 
 type InvoicePushHandler event_source.PushHandler
 
@@ -20,31 +33,109 @@ type InvoicePushHandler event_source.PushHandler
 // The per-event balance logic is not implemented yet (skeleton).
 func NewInvoicePushHandler(
 	db *gorm.DB,
+	projectCfg *ProjectConfig,
 ) InvoicePushHandler {
 
 	return func(ctx context.Context, msg *event_source.PushRequest) error {
+		var err error
 
-		var event selling_iface.SellingEvent
-		if err := protojson.Unmarshal(msg.Message.Data, &event); err != nil {
-			return err
+		switch msg.Subscription {
+		case projectCfg.PubsubSubscriberPath("invoice-selling-sub"):
+			var event selling_iface.SellingEvent
+			if err = protojson.Unmarshal(msg.Message.Data, &event); err != nil {
+				return err
+			}
+
+			// One transaction per event so each event's balance work is self-contained
+			// (and an unknown event opens no transaction at all).
+			switch data := event.Data.(type) {
+			case *selling_iface.SellingEvent_OrderCreated:
+				oc := data.OrderCreated
+				return db.Transaction(func(tx *gorm.DB) error {
+					return postOrderBalances(tx, oc.OrderId, false, oc.TransactionTime.AsTime())
+				})
+			case *selling_iface.SellingEvent_OrderCanceled:
+				oc := data.OrderCanceled
+				return db.Transaction(func(tx *gorm.DB) error {
+					return postOrderBalances(tx, oc.OrderId, true, oc.TransactionTime.AsTime())
+				})
+			}
+		case projectCfg.PubsubSubscriberPath("invoice-stock-sub"):
+			var event warehouse_iface.StockEvent
+			if err = protojson.Unmarshal(msg.Message.Data, &event); err != nil {
+				return err
+			}
+
+			switch data := event.Data.(type) {
+			case *warehouse_iface.StockEvent_RestockAccepted:
+				ra := data.RestockAccepted
+				return db.Transaction(func(tx *gorm.DB) error {
+					return postCodFeeBalance(tx, float64(ra.TransactionId), time.Now())
+				})
+				// case *warehouse_iface.StockEvent_StockProblem:
+				// 	debugtool.LogJson(data)
+				// 	return errors.New("unimplemented")
+				// case *warehouse_iface.StockEvent_StockFoundBack:
+				// 	debugtool.LogJson(data)
+				// 	return errors.New("unimplemented")
+			}
+
 		}
 
-		// One transaction per event so each event's balance work is self-contained
-		// (and an unknown event opens no transaction at all).
-		switch data := event.Data.(type) {
-		case *selling_iface.SellingEvent_OrderCreated:
-			oc := data.OrderCreated
-			return db.Transaction(func(tx *gorm.DB) error {
-				return postOrderBalances(tx, oc.OrderId, false, oc.TransactionTime.AsTime())
-			})
-		case *selling_iface.SellingEvent_OrderCanceled:
-			oc := data.OrderCanceled
-			return db.Transaction(func(tx *gorm.DB) error {
-				return postOrderBalances(tx, oc.OrderId, true, oc.TransactionTime.AsTime())
-			})
-		}
 		return nil
 	}
+}
+
+type CodFee struct {
+	CodFee    float64
+	TeamID    uint64
+	ForTeamID uint64
+}
+
+// postCodFeeBalance posts the COD_FEE double entry for an accepted restock: the
+// transaction's team (team_id) owes the warehouse team (for_team_id = warehouse_id)
+// the COD fee. It is forward-only — restock acceptances aren't reversed here.
+func postCodFeeBalance(tx *gorm.DB, transactionId float64, now time.Time) error {
+	info, err := getCodFee(tx, transactionId)
+	if err != nil {
+		return err
+	}
+	// skip degenerate rows (no fee, no warehouse, self-pair) so a bad row isn't a poison message.
+	if info.TeamID == 0 || info.ForTeamID == 0 || info.TeamID == info.ForTeamID || info.CodFee <= 0 {
+		return nil
+	}
+	note := fmt.Sprintf("restock %d cod fee", uint64(transactionId))
+	// The warehouse (for_team_id) is owed by the team (team_id): a RECEIVABLE on the
+	// warehouse side mirrors to a PAYABLE on the team side.
+	return invoice_v2.PostBalanceLog(
+		tx, info.ForTeamID, info.TeamID,
+		invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_COD_FEE,
+		info.CodFee, invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE,
+		note, 0, now,
+	)
+}
+
+// getCodFee returns the COD fee charged on an inv transaction together with the
+// team that pays it (the transaction's team) and the warehouse team that charges
+// it (warehouse_id, used as a team id). Zero values (e.g. no restock cost row)
+// signal "nothing to post".
+func getCodFee(tx *gorm.DB, transactionId float64) (*CodFee, error) {
+	info := CodFee{}
+	err := tx.
+		Table("inv_transactions it").
+		Joins("left join restock_costs rc on rc.inv_transaction_id = it.id").
+		Where("it.id = ?", transactionId).
+		Select([]string{
+			"rc.cod_fee",
+			"it.warehouse_id as for_team_id",
+			"it.team_id",
+		}).
+		Find(&info).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
 
 // postOrderBalances posts (or reverses, when reverse=true) every balance entry an

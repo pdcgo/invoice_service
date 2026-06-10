@@ -32,7 +32,8 @@ func InitializeApp() (*cli.Command, error) {
 	}
 	client := NewRedisDatabase(appConfig)
 	cacheManager := NewCacheManager(client)
-	invoicePushHandler := invoice_service.NewInvoicePushHandler(db)
+	projectConfig := NewProjectConfig()
+	invoicePushHandler := invoice_service.NewInvoicePushHandler(db, projectConfig)
 	invoicePushHttpHandler := invoice_service.NewInvoicePushHttpHandler(invoicePushHandler)
 	registerHandler := invoice_service.NewRegister(serveMux, db, appConfig, defaultInterceptor, cacheManager, invoicePushHttpHandler)
 	registerReflectFunc := custom_connect.NewRegisterReflect(serveMux)
