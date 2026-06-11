@@ -502,8 +502,8 @@ github.com/pdcgo/event_source v1.0.9 h1:i9usLvIXZk9FK0AfmnGB7fbHxD53KJJD1CrHxobJ
 github.com/pdcgo/event_source v1.0.9/go.mod h1:+7vpcVpe/jZ2LS1eAoon8k1JsEBY36Vg6L8fka2IAo0=
 github.com/pdcgo/san_collection v1.0.3 h1:YvFlCNAgx0r0JUxVvvYdMq6ZA/XY/fwH6MMTZfCO4fo=
 github.com/pdcgo/san_collection v1.0.3/go.mod h1:G+mEGEwpTpA2q+WrLE1rKsCq1FvOIozaPvWQCZtLNvU=
-github.com/pdcgo/schema v1.0.140 h1:mVDwFBApNuOe9MXgtmZQhriHVvD06TA5nNhbRB0Ej0U=
-github.com/pdcgo/schema v1.0.140/go.mod h1:PFVdZ4apphj9eQ3JPMhf8plHqRn2gB9sOyCzy/Iz50M=
+github.com/pdcgo/schema v1.0.141 h1:Bo4VJYuRzywhpuLS/SU364jITHpT5FCNBIU5rfZqphs=
+github.com/pdcgo/schema v1.0.141/go.mod h1:PFVdZ4apphj9eQ3JPMhf8plHqRn2gB9sOyCzy/Iz50M=
 github.com/pdcgo/shared v1.0.134 h1:yZ9b76xndLtNmwfDe7LIkQaZW+hN6+AHm9+mp37O4Fo=
 github.com/pdcgo/shared v1.0.134/go.mod h1:0fmKj08SxkQIBefLiiqDWj/mw9T0YFw1pUeyqTTbt84=
 github.com/pdcgo/user_service v0.0.0-20260610044732-d3e4030ecf6f h1:xvpz4l7vcwouTXJOV/G1AAxjs/wSeE3yNuUQu2Bxo2E=

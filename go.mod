@@ -8,7 +8,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/pdcgo/event_source v1.0.9
 	github.com/pdcgo/san_collection v1.0.3
-	github.com/pdcgo/schema v1.0.140
+	github.com/pdcgo/schema v1.0.141
 	github.com/pdcgo/shared v1.0.134
 	github.com/pdcgo/user_service v0.0.0-20260610044732-d3e4030ecf6f
 	github.com/redis/go-redis/v9 v9.18.0
