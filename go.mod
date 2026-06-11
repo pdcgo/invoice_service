@@ -6,21 +6,15 @@ require (
 	connectrpc.com/connect v1.20.0
 	github.com/google/wire v0.7.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
-	github.com/pdcgo/event_source v0.0.0-00010101000000-000000000000
-	github.com/pdcgo/san_collection v1.0.2
-	github.com/pdcgo/schema v1.0.139
+	github.com/pdcgo/event_source v1.0.9
+	github.com/pdcgo/san_collection v1.0.3
+	github.com/pdcgo/schema v1.0.140
 	github.com/pdcgo/shared v1.0.134
-	github.com/pdcgo/user_service v0.0.0-00010101000000-000000000000
+	github.com/pdcgo/user_service v0.0.0-20260610044732-d3e4030ecf6f
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v3 v3.7.0
 )
-
-replace github.com/pdcgo/user_service => ../user_service
-
-replace github.com/pdcgo/san_collection => ../pkgs/san_collection
-
-replace github.com/pdcgo/event_source => ../pkgs/event_source
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect

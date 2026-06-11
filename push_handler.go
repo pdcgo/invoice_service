@@ -72,9 +72,13 @@ func NewInvoicePushHandler(
 				return db.Transaction(func(tx *gorm.DB) error {
 					return postCodFeeBalance(tx, float64(ra.TransactionId), time.Now())
 				})
-				// case *warehouse_iface.StockEvent_StockProblem:
-				// 	debugtool.LogJson(data)
-				// 	return errors.New("unimplemented")
+			case *warehouse_iface.StockEvent_StockProblem:
+				sp := data.StockProblem
+				return db.Transaction(func(tx *gorm.DB) error {
+					return postProblemStockBalance(tx, sp.TransactionId, time.Now())
+				})
+
+				// schema for foundback unsupproted
 				// case *warehouse_iface.StockEvent_StockFoundBack:
 				// 	debugtool.LogJson(data)
 				// 	return errors.New("unimplemented")
@@ -84,6 +88,69 @@ func NewInvoicePushHandler(
 
 		return nil
 	}
+}
+
+type ProblemStock struct {
+	TeamID      uint64
+	Amount      float64
+	ForTeamID   uint64
+	ProductName string
+}
+
+// postProblemStockBalance posts a STOCK_PROBLEM double entry for each warehouse-side
+// lost/broken item of a transaction: the warehouse (team_id) owes the product team
+// (for_team_id) the value of the lost/broken stock. It is forward-only — recovery
+// (StockFoundBack) is handled separately.
+func postProblemStockBalance(tx *gorm.DB, transactionId uint64, now time.Time) error {
+	items, err := getProblemStock(tx, transactionId)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		// skip degenerate rows so a bad row isn't a poison message.
+		if item.TeamID == 0 || item.ForTeamID == 0 || item.TeamID == item.ForTeamID || item.Amount <= 0 {
+			continue
+		}
+		note := fmt.Sprintf("stock problem tx %d %s", transactionId, item.ProductName)
+		// The warehouse (team_id) owes the product team (for_team_id): a RECEIVABLE on
+		// the product-team side mirrors to a PAYABLE on the warehouse side.
+		if err := invoice_v2.PostBalanceLog(
+			tx, item.ForTeamID, item.TeamID,
+			invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_STOCK_PROBLEM,
+			item.Amount, invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE,
+			note, 0, now,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// getProblemStock returns the warehouse-side problem items (lost/broken at the
+// warehouse) of an inv transaction: the warehouse that holds the stock (team_id),
+// the line value (amount), the product-owning team (for_team_id) and product name.
+func getProblemStock(tx *gorm.DB, transactionId uint64) ([]*ProblemStock, error) {
+	items := []*ProblemStock{}
+	err := tx.
+		Table("inv_item_problems iip").
+		Joins("left join inv_transactions it on iip.tx_id = it.id").
+		Joins("left join inv_tx_items iti on iti.id = iip.tx_item_id").
+		Joins("left join skus s on s.id = iti.sku_id").
+		Joins("left join products p on p.id = s.product_id").
+		Where("iip.problem_type IN ?", []string{"lost_w", "broken_w"}).
+		Where("iip.tx_id = ?", transactionId).
+		Select([]string{
+			"it.warehouse_id as team_id",
+			"iti.total as amount",
+			"s.team_id as for_team_id",
+			"p.name as product_name",
+		}).
+		Find(&items).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 type CodFee struct {

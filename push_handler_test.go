@@ -24,7 +24,22 @@ const (
 	productFee   = invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PRODUCT_FEE
 	warehouseFee = invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_WAREHOUSE_FEE
 	codFee       = invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_COD_FEE
+	stockProblem = invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_STOCK_PROBLEM
 )
+
+// testInvItemProblem maps to the legacy `inv_item_problems` table (no shared
+// db_models exist for it) so the test can migrate/seed it without importing the
+// warehouse_service_legacy module.
+type testInvItemProblem struct {
+	ID          uint `gorm:"primarykey"`
+	SkuID       string
+	TxID        uint
+	TxItemID    uint
+	ProblemType string
+	Count       int
+}
+
+func (testInvItemProblem) TableName() string { return "inv_item_problems" }
 
 func TestInvoicePushHandler(t *testing.T) {
 	var scenario moretest_mock.DbScenario
@@ -268,6 +283,75 @@ func TestInvoicePushHandlerRestockCodFee(t *testing.T) {
 					assert.NoError(t, db.Model(&invoice_models.BalanceChangeLog{}).Count(&n).Error)
 					assert.Equal(t, int64(2), n)
 				})
+			})
+		},
+	)
+}
+
+func TestInvoicePushHandlerStockProblem(t *testing.T) {
+	var scenario moretest_mock.DbScenario
+
+	moretest.Suite(t, "invoice push handler stock problem",
+		moretest.SetupListFunc{
+			moretest_mock.MockPostgresDatabase(&scenario),
+		},
+		func(t *testing.T) {
+			scenario(t, func(db *gorm.DB) {
+				assert.NoError(t, db.AutoMigrate(
+					&db_models.InvTransaction{},
+					&db_models.InvTxItem{},
+					&db_models.Sku{},
+					&db_models.Product{},
+					&testInvItemProblem{},
+					&invoice_models.TeamBalance{},
+					&invoice_models.BalanceChangeLog{},
+					&invoice_models.TeamBalanceDailyLog{},
+				))
+
+				// transaction 30 at warehouse 9; product 5 owned by team 2.
+				assert.NoError(t, db.Create(&db_models.InvTransaction{ID: 30, WarehouseID: 9}).Error)
+				assert.NoError(t, db.Create(&db_models.Product{ID: 5, Name: "X"}).Error)
+				assert.NoError(t, db.Create(&db_models.Sku{ID: "sku1", TeamID: 2, ProductID: 5}).Error)
+				assert.NoError(t, db.Create(&db_models.InvTxItem{ID: 50, SkuID: "sku1", Total: 40}).Error)
+				assert.NoError(t, db.Create(&db_models.InvTxItem{ID: 51, SkuID: "sku1", Total: 99}).Error)
+				// warehouse-side loss (posts) + shipping-side loss (filtered out).
+				assert.NoError(t, db.Create(&testInvItemProblem{TxID: 30, TxItemID: 50, ProblemType: "lost_w"}).Error)
+				assert.NoError(t, db.Create(&testInvItemProblem{TxID: 30, TxItemID: 51, ProblemType: "lost_s"}).Error)
+
+				projectCfg := &invoice_service.ProjectConfig{ProjectID: "test"}
+				handler := invoice_service.NewInvoicePushHandler(db, projectCfg)
+
+				balanceOf := func(teamID, forTeamID uint64, bt invoice_iface.BalanceType) (invoice_models.TeamBalance, bool) {
+					var b invoice_models.TeamBalance
+					res := db.Where("team_id = ? AND for_team_id = ? AND balance_type = ?", teamID, forTeamID, bt).Limit(1).Find(&b)
+					assert.NoError(t, res.Error)
+					return b, res.RowsAffected > 0
+				}
+
+				msg := event_source_mock.NewMockEvent(t, &warehouse_iface.StockEvent{
+					Data: &warehouse_iface.StockEvent_StockProblem{
+						StockProblem: &warehouse_iface.StockProblem{TransactionId: 30},
+					},
+				})
+				msg.Subscription = projectCfg.PubsubSubscriberPath("invoice-stock-sub")
+				assert.NoError(t, handler(t.Context(), msg))
+
+				// only the lost_w item (40) posts: warehouse 9 owes product team 2.
+				rcv, ok := balanceOf(2, 9, receivable)
+				assert.True(t, ok)
+				assert.Equal(t, float64(40), rcv.Balance)
+				pyb, ok := balanceOf(9, 2, payable)
+				assert.True(t, ok)
+				assert.Equal(t, float64(-40), pyb.Balance)
+
+				// one warehouse-side item x 2 legs (lost_s excluded).
+				var n int64
+				assert.NoError(t, db.Model(&invoice_models.BalanceChangeLog{}).Count(&n).Error)
+				assert.Equal(t, int64(2), n)
+
+				var probLog invoice_models.BalanceChangeLog
+				assert.NoError(t, db.Where("team_id = ? AND for_team_id = ?", uint64(2), uint64(9)).First(&probLog).Error)
+				assert.Equal(t, stockProblem, probLog.ChangeType)
 			})
 		},
 	)
