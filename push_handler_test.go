@@ -7,6 +7,7 @@ import (
 	"github.com/pdcgo/event_source/event_source_mock"
 	"github.com/pdcgo/invoice_service"
 	"github.com/pdcgo/invoice_service/invoice_models"
+	"github.com/pdcgo/san_collection/san_config"
 	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/schema/services/selling_iface/v1"
 	"github.com/pdcgo/schema/services/warehouse_iface/v1"
@@ -89,7 +90,7 @@ func TestInvoicePushHandler(t *testing.T) {
 				}
 				assert.NoError(t, db.Create(order).Error)
 
-				projectCfg := &invoice_service.ProjectConfig{ProjectID: "test"}
+				projectCfg := &san_config.ProjectConfig{ProjectID: "test"}
 				handler := invoice_service.NewInvoicePushHandler(db, projectCfg)
 				txTime := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
 
@@ -230,7 +231,7 @@ func TestInvoicePushHandlerRestockCodFee(t *testing.T) {
 				assert.NoError(t, db.Create(&db_models.InvTransaction{ID: 20, TeamID: 1, WarehouseID: 9}).Error)
 				assert.NoError(t, db.Create(&db_models.RestockCost{InvTransactionID: 20, CodFee: 25}).Error)
 
-				projectCfg := &invoice_service.ProjectConfig{ProjectID: "test"}
+				projectCfg := &san_config.ProjectConfig{ProjectID: "test"}
 				handler := invoice_service.NewInvoicePushHandler(db, projectCfg)
 
 				balanceOf := func(teamID, forTeamID uint64, bt invoice_iface.BalanceType) (invoice_models.TeamBalance, bool) {
@@ -318,7 +319,7 @@ func TestInvoicePushHandlerStockProblem(t *testing.T) {
 				assert.NoError(t, db.Create(&testInvItemProblem{TxID: 30, TxItemID: 50, ProblemType: "lost_w"}).Error)
 				assert.NoError(t, db.Create(&testInvItemProblem{TxID: 30, TxItemID: 51, ProblemType: "lost_s"}).Error)
 
-				projectCfg := &invoice_service.ProjectConfig{ProjectID: "test"}
+				projectCfg := &san_config.ProjectConfig{ProjectID: "test"}
 				handler := invoice_service.NewInvoicePushHandler(db, projectCfg)
 
 				balanceOf := func(teamID, forTeamID uint64, bt invoice_iface.BalanceType) (invoice_models.TeamBalance, bool) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/pdcgo/invoice_service"
 	"github.com/pdcgo/san_collection/san_caches"
+	"github.com/pdcgo/san_collection/san_config"
 	"github.com/pdcgo/shared/configs"
 	"github.com/pdcgo/shared/db_connect"
 	"github.com/pdcgo/shared/pkg/cloud_logging"
@@ -26,8 +26,8 @@ func NewCacheManager(client *redis.Client) san_caches.CacheManager {
 	return san_caches.NewRedisCacheManager(client)
 }
 
-func NewProjectConfig() *invoice_service.ProjectConfig {
-	return &invoice_service.ProjectConfig{ProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT")}
+func NewProjectConfig() *san_config.ProjectConfig {
+	return &san_config.ProjectConfig{ProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT")}
 }
 
 func NewApp(

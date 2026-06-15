@@ -8,6 +8,7 @@ import (
 
 	"github.com/pdcgo/event_source"
 	"github.com/pdcgo/invoice_service/invoice_v2"
+	"github.com/pdcgo/san_collection/san_config"
 	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/schema/services/selling_iface/v1"
 	"github.com/pdcgo/schema/services/warehouse_iface/v1"
@@ -15,25 +16,13 @@ import (
 	"gorm.io/gorm"
 )
 
-type ProjectConfig struct {
-	ProjectID string `env:"GOOGLE_CLOUD_PROJECT"`
-}
-
-func (projectCfg *ProjectConfig) PubsubTopicPath(topic string) string {
-	return fmt.Sprintf("projects/%s/topics/%s", projectCfg.ProjectID, topic)
-}
-
-func (projectCfg *ProjectConfig) PubsubSubscriberPath(sub string) string {
-	return fmt.Sprintf("projects/%s/subscriptions/%s", projectCfg.ProjectID, sub)
-}
-
 type InvoicePushHandler event_source.PushHandler
 
 // NewInvoicePushHandler decodes pushed InvoiceEvents and dispatches them by type.
 // The per-event balance logic is not implemented yet (skeleton).
 func NewInvoicePushHandler(
 	db *gorm.DB,
-	projectCfg *ProjectConfig,
+	projectCfg *san_config.ProjectConfig,
 ) InvoicePushHandler {
 
 	return func(ctx context.Context, msg *event_source.PushRequest) error {

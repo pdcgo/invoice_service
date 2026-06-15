@@ -142,3 +142,5 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gorm.io/gorm v1.31.1
 )
+
+replace github.com/pdcgo/san_collection => ../pkgs/san_collection
