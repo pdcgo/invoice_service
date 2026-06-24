@@ -87,18 +87,29 @@ func TestPayment(t *testing.T) {
 				})
 
 				t.Run("accept: settles balance, clears pending, marks accepted", func(t *testing.T) {
+					// seed: payer 3 owes receiver 4 by 30 -> PAYABLE(3,4) = -30.
+					_, err := svc.CreateBalanceLog(ctx, connect.NewRequest(&invoice_iface.CreateBalanceLogRequest{
+						TeamId:       4,
+						ForTeamId:    3,
+						ChangeType:   invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_ADJUSTMENT,
+						ChangeAmount: 30,
+						BalanceType:  receivable,
+					}))
+					assert.NoError(t, err)
+
 					id := create(3, 4)
-					_, err := svc.AcceptPayment(ctx, connect.NewRequest(&invoice_iface.AcceptPaymentRequest{
+					_, err = svc.AcceptPayment(ctx, connect.NewRequest(&invoice_iface.AcceptPaymentRequest{
 						TeamId: 3, ForTeamId: 4, PaymentId: id,
 					}))
 					assert.NoError(t, err)
 
+					// debt of 30 fully settled to zero on both sides.
 					pyb, _ := balanceOf(3, 4, payable)
-					assert.Equal(t, float64(30), pyb.Balance)
+					assert.Equal(t, float64(0), pyb.Balance)
 					assert.Equal(t, float64(0), pyb.PendingPaymentAmount)
 
 					rcv, _ := balanceOf(4, 3, receivable)
-					assert.Equal(t, float64(-30), rcv.Balance)
+					assert.Equal(t, float64(0), rcv.Balance)
 					assert.Equal(t, float64(0), rcv.PendingPaymentAmount)
 
 					var logs int64
@@ -120,6 +131,48 @@ func TestPayment(t *testing.T) {
 						}))
 						assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 					})
+				})
+
+				t.Run("accept: overpayment recorded as credit", func(t *testing.T) {
+					// seed: payer 13 owes receiver 14 by 30 -> PAYABLE(13,14) = -30.
+					_, err := svc.CreateBalanceLog(ctx, connect.NewRequest(&invoice_iface.CreateBalanceLogRequest{
+						TeamId:       14,
+						ForTeamId:    13,
+						ChangeType:   invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_ADJUSTMENT,
+						ChangeAmount: 30,
+						BalanceType:  receivable,
+					}))
+					assert.NoError(t, err)
+
+					// overpay: 100 against a 30 debt.
+					res, err := svc.CreatePayment(ctx, connect.NewRequest(&invoice_iface.CreatePaymentRequest{
+						TeamId:    13,
+						ForTeamId: 14,
+						Amount:    100,
+						Note:      "n",
+					}))
+					assert.NoError(t, err)
+
+					_, err = svc.AcceptPayment(ctx, connect.NewRequest(&invoice_iface.AcceptPaymentRequest{
+						TeamId: 13, ForTeamId: 14, PaymentId: res.Msg.Id,
+					}))
+					assert.NoError(t, err)
+
+					// the 30 debt is fully settled.
+					pyb, _ := balanceOf(13, 14, payable)
+					assert.Equal(t, float64(0), pyb.Balance)
+					assert.Equal(t, float64(0), pyb.PendingPaymentAmount)
+					rcvDebt, _ := balanceOf(14, 13, receivable)
+					assert.Equal(t, float64(0), rcvDebt.Balance)
+					assert.Equal(t, float64(0), rcvDebt.PendingPaymentAmount)
+
+					// the 70 surplus is a clean credit: payer 13 is now owed 70 by 14.
+					credit, ok := balanceOf(13, 14, receivable)
+					assert.True(t, ok)
+					assert.Equal(t, float64(70), credit.Balance)
+					mirror, ok := balanceOf(14, 13, payable)
+					assert.True(t, ok)
+					assert.Equal(t, float64(-70), mirror.Balance)
 				})
 
 				t.Run("reject: clears pending, balances untouched, marks rejected", func(t *testing.T) {

@@ -36,10 +36,37 @@ func (s *invoiceServiceImpl) AcceptPayment(
 			return err
 		}
 
-		// Settle the debt: reduce the payer's PAYABLE (and mirror the receivable).
 		note := fmt.Sprintf("payment #%d", p.ID)
-		if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, p.Amount, note, completedBy, now); err != nil {
+
+		// Split the payment into the debt it settles and any overpayment credit.
+		// PAYABLE(payer, receiver) is <= 0 by convention; its magnitude is the debt owed.
+		bal, err := lockOrCreateBalance(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, now)
+		if err != nil {
 			return err
+		}
+		outstanding := 0.0
+		if bal.Balance < 0 {
+			outstanding = -bal.Balance
+		}
+		settle := p.Amount
+		if settle > outstanding {
+			settle = outstanding
+		}
+		surplus := p.Amount - settle
+
+		// Settle the debt portion: move the payer's PAYABLE toward zero.
+		if settle > 0 {
+			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, settle, note, completedBy, now); err != nil {
+				return err
+			}
+		}
+		// Overpayment becomes a clean credit: the payer is now owed `surplus` by the
+		// receiver -> RECEIVABLE(payer, receiver), mirrored to PAYABLE(receiver, payer).
+		if surplus > 0 {
+			creditNote := fmt.Sprintf("payment #%d overpayment credit", p.ID)
+			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, surplus, creditNote, completedBy, now); err != nil {
+				return err
+			}
 		}
 
 		// Clear the in-flight amount on both sides.

@@ -32,10 +32,28 @@ func NewProjectConfig() *san_config.ProjectConfig {
 
 func NewApp(
 	serviceApiFunc ServiceApiFunc,
+	syncLegacyFunc SyncLegacyFunc,
 ) *cli.Command {
 	return &cli.Command{
 		Name:   "run",
 		Action: cli.ActionFunc(serviceApiFunc),
+		Commands: []*cli.Command{
+			{
+				Name:   "sync-legacy",
+				Action: cli.ActionFunc(syncLegacyFunc),
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "host",
+						Aliases: []string{"h"},
+						Value:   "http://localhost:8080",
+					},
+					&cli.StringFlag{
+						Name:    "username",
+						Aliases: []string{"u"},
+					},
+				},
+			},
+		},
 	}
 }
 

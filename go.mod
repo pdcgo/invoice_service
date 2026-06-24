@@ -7,10 +7,10 @@ require (
 	github.com/google/wire v0.7.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2
 	github.com/pdcgo/event_source v1.0.9
-	github.com/pdcgo/san_collection v1.0.3
-	github.com/pdcgo/schema v1.0.141
+	github.com/pdcgo/san_collection v1.0.4
+	github.com/pdcgo/schema v1.0.148
 	github.com/pdcgo/shared v1.0.134
-	github.com/pdcgo/user_service v0.0.0-20260610044732-d3e4030ecf6f
+	github.com/pdcgo/user_service v0.0.0-20260618084459-da86410005d9
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v3 v3.7.0
@@ -142,5 +142,3 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gorm.io/gorm v1.31.1
 )
-
-replace github.com/pdcgo/san_collection => ../pkgs/san_collection

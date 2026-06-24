@@ -38,6 +38,7 @@ func InitializeApp() (*cli.Command, error) {
 	registerHandler := invoice_service.NewRegister(serveMux, db, appConfig, defaultInterceptor, cacheManager, invoicePushHttpHandler)
 	registerReflectFunc := custom_connect.NewRegisterReflect(serveMux)
 	serviceApiFunc := NewServiceApiFunc(serveMux, registerHandler, registerReflectFunc)
-	command := NewApp(serviceApiFunc)
+	syncLegacyFunc := NewSyncLegacyFunc(db, appConfig)
+	command := NewApp(serviceApiFunc, syncLegacyFunc)
 	return command, nil
 }

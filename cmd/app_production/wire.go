@@ -27,6 +27,7 @@ func InitializeApp() (*cli.Command, error) {
 		invoice_service.NewInvoicePushHttpHandler,
 		invoice_service.NewRegister,
 		NewServiceApiFunc,
+		NewSyncLegacyFunc,
 		NewApp,
 	)
 
