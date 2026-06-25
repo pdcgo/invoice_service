@@ -23,10 +23,14 @@ type InvoicePushHandler event_source.PushHandler
 func NewInvoicePushHandler(
 	db *gorm.DB,
 	projectCfg *san_config.ProjectConfig,
+	// cache san_caches.CacheManager,
 ) InvoicePushHandler {
 
 	return func(ctx context.Context, msg *event_source.PushRequest) error {
 		var err error
+
+		// layer idempotency message event jika dikirim 2 kali
+		// cache.
 
 		switch msg.Subscription {
 		case projectCfg.PubsubSubscriberPath("invoice-selling-sub"):

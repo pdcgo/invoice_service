@@ -6,20 +6,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// toProtoTeamBalance maps a stored TeamBalance to its proto representation.
-func toProtoTeamBalance(b *invoice_models.TeamBalance) *invoice_iface.TeamBalance {
-	return &invoice_iface.TeamBalance{
-		Id:                   b.ID,
-		TeamId:               b.TeamID,
-		ForTeamId:            b.ForTeamID,
-		BalanceType:          b.BalanceType,
-		Balance:              b.Balance,
-		PendingPaymentAmount: b.PendingPaymentAmount,
-		CreatedAt:            timestamppb.New(b.CreatedAt),
-		UpdatedAt:            timestamppb.New(b.UpdatedAt),
-	}
-}
-
 // toProtoBalanceChangeLog maps a stored BalanceChangeLog to its proto representation.
 func toProtoBalanceChangeLog(l *invoice_models.BalanceChangeLog) *invoice_iface.BalanceChangeLog {
 	return &invoice_iface.BalanceChangeLog{
