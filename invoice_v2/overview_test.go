@@ -33,11 +33,13 @@ func TestOverview(t *testing.T) {
 				after := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 				ptr := func(t time.Time) *time.Time { return &t }
 
-				// team 1 balances: owes 100 (pending 30) to t2 and 40 to t3; is owed 70 by t2.
+				// team 1 balances: owes 100 (pending 30) to t2 and 40 to t3; is owed 70 (incoming
+				// pending 15) by t2 and 5 (incoming pending 10) by t3.
 				assert.NoError(t, tx.Create(&[]invoice_models.TeamBalance{
 					{TeamID: 1, ForTeamID: 2, BalanceType: payable, Balance: -100, PendingPaymentAmount: 30},
 					{TeamID: 1, ForTeamID: 3, BalanceType: payable, Balance: -40, PendingPaymentAmount: 0},
-					{TeamID: 1, ForTeamID: 2, BalanceType: receivable, Balance: 70},
+					{TeamID: 1, ForTeamID: 2, BalanceType: receivable, Balance: 70, PendingPaymentAmount: 15},
+					{TeamID: 1, ForTeamID: 3, BalanceType: receivable, Balance: 5, PendingPaymentAmount: 10},
 					{TeamID: 9, ForTeamID: 2, BalanceType: payable, Balance: -999, PendingPaymentAmount: 5}, // other team, excluded
 				}).Error)
 
@@ -71,19 +73,21 @@ func TestOverview(t *testing.T) {
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_PAYABLE,
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_RECEIVABLE,
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_PENDING_PAYMENT,
+							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_INCOMING_PAYMENT,
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_TOTAL_PAYMENT,
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_TOTAL_PAYABLE,
 							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_TOTAL_RECEIVABLE,
 						},
 					}))
 					assert.NoError(t, err)
-					assert.Len(t, res.Msg.Data, 6)
+					assert.Len(t, res.Msg.Data, 7)
 					assert.Equal(t, float64(140), res.Msg.Data[0].GetPayable())
-					assert.Equal(t, float64(70), res.Msg.Data[1].GetReceivable())
+					assert.Equal(t, float64(75), res.Msg.Data[1].GetReceivable())
 					assert.Equal(t, float64(30), res.Msg.Data[2].GetPendingPayment())
-					assert.Equal(t, float64(25), res.Msg.Data[3].GetTotalPayment())
-					assert.Equal(t, float64(140), res.Msg.Data[4].GetTotalPayable())
-					assert.Equal(t, float64(70), res.Msg.Data[5].GetTotalReceivable())
+					assert.Equal(t, float64(25), res.Msg.Data[3].GetIncomingPayment()) // receivable-side pending: 15 + 10
+					assert.Equal(t, float64(25), res.Msg.Data[4].GetTotalPayment())
+					assert.Equal(t, float64(140), res.Msg.Data[5].GetTotalPayable())
+					assert.Equal(t, float64(70), res.Msg.Data[6].GetTotalReceivable())
 				})
 
 				t.Run("order follows the requested metric list", func(t *testing.T) {
@@ -95,7 +99,7 @@ func TestOverview(t *testing.T) {
 						},
 					}))
 					assert.NoError(t, err)
-					assert.Equal(t, float64(70), res.Msg.Data[0].GetReceivable())
+					assert.Equal(t, float64(75), res.Msg.Data[0].GetReceivable())
 					assert.Equal(t, float64(140), res.Msg.Data[1].GetPayable())
 				})
 
@@ -108,6 +112,17 @@ func TestOverview(t *testing.T) {
 					}))
 					assert.NoError(t, err)
 					assert.Equal(t, float64(40), res.Msg.Data[0].GetPayable())
+				})
+
+				t.Run("incoming payment is receivable-side pending, scoped per counterparty", func(t *testing.T) {
+					res, err := svc.Overview(ctx, connect.NewRequest(&invoice_iface.OverviewRequest{
+						Filter: &invoice_iface.OverviewFilter{TeamId: 1, ForTeamId: 3},
+						MetricType: []invoice_iface.OverviewMetricType{
+							invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_INCOMING_PAYMENT,
+						},
+					}))
+					assert.NoError(t, err)
+					assert.Equal(t, float64(10), res.Msg.Data[0].GetIncomingPayment())
 				})
 
 				t.Run("windowed metric without time_range is invalid", func(t *testing.T) {

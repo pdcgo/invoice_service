@@ -90,6 +90,16 @@ func (s *invoiceServiceImpl) Overview(
 			}
 			item.Data = &invoice_iface.OverviewDataItem_PendingPayment{PendingPayment: v}
 
+		case invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_INCOMING_PAYMENT:
+			// Incoming in-flight payments live on the receivable side; summing one
+			// side avoids double-counting the pair.
+			v, err := sumCol(scope(db.Model(&invoice_models.TeamBalance{}).
+				Where("balance_type = ?", invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE)), "pending_payment_amount")
+			if err != nil {
+				return nil, err
+			}
+			item.Data = &invoice_iface.OverviewDataItem_IncomingPayment{IncomingPayment: v}
+
 		case invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_TOTAL_PAYMENT:
 			if err := timeWindow(); err != nil {
 				return nil, err

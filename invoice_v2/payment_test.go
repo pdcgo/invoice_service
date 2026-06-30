@@ -3,6 +3,7 @@ package invoice_v2_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/pdcgo/schema/services/common/v1"
@@ -14,6 +15,7 @@ import (
 	"github.com/pdcgo/shared/pkg/moretest/moretest_mock"
 	"github.com/pdcgo/user_service/access_interceptors"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/gorm"
 )
 
@@ -236,6 +238,72 @@ func TestPayment(t *testing.T) {
 					assert.NoError(t, err)
 					assert.Len(t, inc.Msg.Payments, 1)
 					assert.Equal(t, uint64(10), inc.Msg.Payments[0].TeamId)
+				})
+
+				t.Run("list filtered by created_at window", func(t *testing.T) {
+					// Seed three payments (payer 20 -> receiver 21) at known times by
+					// inserting directly so created_at is controlled (CreatePayment uses now()).
+					now := time.Now()
+					for _, ts := range []time.Time{
+						now.Add(-72 * time.Hour), // d-3
+						now.Add(-48 * time.Hour), // d-2
+						now,                      // today
+					} {
+						assert.NoError(t, tx.Create(&invoice_models.InvoicePayment{
+							TeamID:      20,
+							ForTeamID:   21,
+							Amount:      5,
+							Status:      pending,
+							CreatedByID: 7,
+							CreatedAt:   ts,
+						}).Error)
+					}
+
+					page := &common.PageFilter{Page: 1, Limit: 10}
+
+					// No window -> all three.
+					all, err := svc.ListPayment(ctx, connect.NewRequest(&invoice_iface.ListPaymentRequest{
+						TeamId: 20, Page: page,
+					}))
+					assert.NoError(t, err)
+					assert.Len(t, all.Msg.Payments, 3)
+
+					// from = 60h ago -> the d-2 and today rows (2).
+					fromOnly, err := svc.ListPayment(ctx, connect.NewRequest(&invoice_iface.ListPaymentRequest{
+						TeamId:   20,
+						Page:     page,
+						FromTime: timestamppb.New(now.Add(-60 * time.Hour)),
+					}))
+					assert.NoError(t, err)
+					assert.Len(t, fromOnly.Msg.Payments, 2)
+
+					// to = 60h ago -> only the d-3 row (1).
+					toOnly, err := svc.ListPayment(ctx, connect.NewRequest(&invoice_iface.ListPaymentRequest{
+						TeamId: 20,
+						Page:   page,
+						ToTime: timestamppb.New(now.Add(-60 * time.Hour)),
+					}))
+					assert.NoError(t, err)
+					assert.Len(t, toOnly.Msg.Payments, 1)
+
+					// window [60h ago, 36h ago] -> only the d-2 row (1).
+					window, err := svc.ListPayment(ctx, connect.NewRequest(&invoice_iface.ListPaymentRequest{
+						TeamId:   20,
+						Page:     page,
+						FromTime: timestamppb.New(now.Add(-60 * time.Hour)),
+						ToTime:   timestamppb.New(now.Add(-36 * time.Hour)),
+					}))
+					assert.NoError(t, err)
+					assert.Len(t, window.Msg.Payments, 1)
+
+					// Incoming side honors the same window (receiver 21).
+					inc, err := svc.ListIncomingPayment(ctx, connect.NewRequest(&invoice_iface.ListIncomingPaymentRequest{
+						ForTeamId: 21,
+						Page:      page,
+						FromTime:  timestamppb.New(now.Add(-60 * time.Hour)),
+					}))
+					assert.NoError(t, err)
+					assert.Len(t, inc.Msg.Payments, 2)
 				})
 			})
 		},

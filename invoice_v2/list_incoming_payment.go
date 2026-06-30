@@ -42,6 +42,12 @@ func (s *invoiceServiceImpl) ListIncomingPayment(
 				if pay.Status != invoice_iface.PaymentStatus_PAYMENT_STATUS_UNSPECIFIED {
 					d = d.Where("status = ?", pay.Status)
 				}
+				if pay.FromTime != nil {
+					d = d.Where("created_at >= ?", pay.FromTime.AsTime())
+				}
+				if pay.ToTime != nil {
+					d = d.Where("created_at <= ?", pay.ToTime.AsTime())
+				}
 				return d
 			})
 		return query, nil

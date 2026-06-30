@@ -59,6 +59,7 @@ func TestInvoicePushHandler(t *testing.T) {
 					&invoice_models.TeamBalance{},
 					&invoice_models.BalanceChangeLog{},
 					&invoice_models.TeamBalanceDailyLog{},
+					&invoice_models.InvoiceExactlyOnceLog{},
 				))
 
 				// order team 1 sells products owned by team 2 (cross items), plus one owned item.
@@ -225,6 +226,7 @@ func TestInvoicePushHandlerRestockCodFee(t *testing.T) {
 					&invoice_models.TeamBalance{},
 					&invoice_models.BalanceChangeLog{},
 					&invoice_models.TeamBalanceDailyLog{},
+					&invoice_models.InvoiceExactlyOnceLog{},
 				))
 
 				// restock transaction 20: team 1 restocked at warehouse 9, COD fee 25.
@@ -307,6 +309,7 @@ func TestInvoicePushHandlerStockProblem(t *testing.T) {
 					&invoice_models.TeamBalance{},
 					&invoice_models.BalanceChangeLog{},
 					&invoice_models.TeamBalanceDailyLog{},
+					&invoice_models.InvoiceExactlyOnceLog{},
 				))
 
 				// transaction 30 at warehouse 9; product 5 owned by team 2.

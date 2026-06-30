@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pdcgo/event_source"
+	"github.com/pdcgo/invoice_service/invoice_models"
 	"github.com/pdcgo/invoice_service/invoice_v2"
 	"github.com/pdcgo/san_collection/san_config"
 	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
@@ -14,72 +15,80 @@ import (
 	"github.com/pdcgo/schema/services/warehouse_iface/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type InvoicePushHandler event_source.PushHandler
 
-// NewInvoicePushHandler decodes pushed InvoiceEvents and dispatches them by type.
-// The per-event balance logic is not implemented yet (skeleton).
+// NewInvoicePushHandler decodes pushed events and posts their balance entries, exactly
+// once. A message-id inbox row (Pub/Sub MessageID + subscription) is written inside the
+// same transaction as the balance work: if it already exists the message was applied
+// before and we skip; if the work fails the whole transaction (inbox row included) rolls
+// back so a redelivery reprocesses it. This guards against Pub/Sub redelivery
+// double-posting balances. Mirrors inventory_service.NewInventoryPushHandler.
 func NewInvoicePushHandler(
 	db *gorm.DB,
 	projectCfg *san_config.ProjectConfig,
-	// cache san_caches.CacheManager,
 ) InvoicePushHandler {
 
 	return func(ctx context.Context, msg *event_source.PushRequest) error {
-		var err error
-
-		// layer idempotency message event jika dikirim 2 kali
-		// cache.
-
-		switch msg.Subscription {
-		case projectCfg.PubsubSubscriberPath("invoice-selling-sub"):
-			var event selling_iface.SellingEvent
-			if err = protojson.Unmarshal(msg.Message.Data, &event); err != nil {
-				return err
+		return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			seen := invoice_models.InvoiceExactlyOnceLog{
+				ID:           msg.Message.MessageID,
+				Subscription: msg.Subscription,
+				CreatedAt:    time.Now(),
+			}
+			res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&seen)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return nil // already processed
 			}
 
-			// One transaction per event so each event's balance work is self-contained
-			// (and an unknown event opens no transaction at all).
-			switch data := event.Data.(type) {
-			case *selling_iface.SellingEvent_OrderCreated:
-				oc := data.OrderCreated
-				return db.Transaction(func(tx *gorm.DB) error {
+			switch msg.Subscription {
+			case projectCfg.PubsubSubscriberPath("invoice-selling-sub"):
+				var event selling_iface.SellingEvent
+				if err := protojson.Unmarshal(msg.Message.Data, &event); err != nil {
+					return err
+				}
+
+				switch data := event.Data.(type) {
+				case *selling_iface.SellingEvent_OrderCreated:
+					oc := data.OrderCreated
 					return postOrderBalances(tx, oc.OrderId, false, oc.TransactionTime.AsTime())
-				})
-			case *selling_iface.SellingEvent_OrderCanceled:
-				oc := data.OrderCanceled
-				return db.Transaction(func(tx *gorm.DB) error {
+				case *selling_iface.SellingEvent_OrderCanceled:
+					oc := data.OrderCanceled
 					return postOrderBalances(tx, oc.OrderId, true, oc.TransactionTime.AsTime())
-				})
-			}
-		case projectCfg.PubsubSubscriberPath("invoice-stock-sub"):
-			var event warehouse_iface.StockEvent
-			if err = protojson.Unmarshal(msg.Message.Data, &event); err != nil {
-				return err
-			}
 
-			switch data := event.Data.(type) {
-			case *warehouse_iface.StockEvent_RestockAccepted:
-				ra := data.RestockAccepted
-				return db.Transaction(func(tx *gorm.DB) error {
+				case *selling_iface.SellingEvent_PaymentAccept:
+					pa := data.PaymentAccept
+					return postPaymentAcceptBalance(tx, pa.SubmissionId, time.Now())
+				}
+			case projectCfg.PubsubSubscriberPath("invoice-stock-sub"):
+				var event warehouse_iface.StockEvent
+				if err := protojson.Unmarshal(msg.Message.Data, &event); err != nil {
+					return err
+				}
+
+				switch data := event.Data.(type) {
+				case *warehouse_iface.StockEvent_RestockAccepted:
+					ra := data.RestockAccepted
 					return postCodFeeBalance(tx, float64(ra.TransactionId), time.Now())
-				})
-			case *warehouse_iface.StockEvent_StockProblem:
-				sp := data.StockProblem
-				return db.Transaction(func(tx *gorm.DB) error {
+				case *warehouse_iface.StockEvent_StockProblem:
+					sp := data.StockProblem
 					return postProblemStockBalance(tx, sp.TransactionId, time.Now())
-				})
 
-				// schema for foundback unsupproted
-				// case *warehouse_iface.StockEvent_StockFoundBack:
-				// 	debugtool.LogJson(data)
-				// 	return errors.New("unimplemented")
+					// schema for foundback unsupproted
+					// case *warehouse_iface.StockEvent_StockFoundBack:
+					// 	debugtool.LogJson(data)
+					// 	return errors.New("unimplemented")
+				}
+
 			}
 
-		}
-
-		return nil
+			return nil
+		})
 	}
 }
 
@@ -339,6 +348,61 @@ func getWarehouseFee(tx *gorm.DB, orderID uint64) (*OrderWarehouseFee, error) {
 			"o.order_ref_id as order_external_id",
 			"o.warehouse_fee as fee",
 		}).
+		Find(&info).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+type PaymentAcceptInfo struct {
+	TeamID    uint64 // payer (invoices.from_team_id, the debtor)
+	ForTeamID uint64 // receiver (invoices.to_team_id, the creditor)
+	Amount    float64
+}
+
+// postPaymentAcceptBalance settles an accepted payment submission in the v2 ledger: the
+// payer (from_team) pays the receiver (to_team) the submitted amount, moving the payer's
+// PAYABLE toward zero (mirrored on the receiver's RECEIVABLE). Forward-only.
+func postPaymentAcceptBalance(tx *gorm.DB, submissionID uint64, now time.Time) error {
+	info, err := getPaymentSubmission(tx, submissionID)
+	if err != nil {
+		return err
+	}
+	// skip degenerate rows (no teams, self-pair, no amount) so a bad row isn't a poison message.
+	if info.TeamID == 0 || info.ForTeamID == 0 || info.TeamID == info.ForTeamID || info.Amount <= 0 {
+		return nil
+	}
+	note := fmt.Sprintf("payment submission #%d", submissionID)
+	// The payer (from_team) settles its PAYABLE to the receiver (to_team): a PAYMENT change
+	// moves the payer's PAYABLE toward zero (mirrored on the receiver's RECEIVABLE).
+	return invoice_v2.PostBalanceLog(
+		tx, info.TeamID, info.ForTeamID,
+		invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT,
+		info.Amount, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE,
+		note, 0, now,
+	)
+}
+
+// getPaymentSubmission returns the payer team, receiver team and amount of a payment
+// submission, derived from any of its linked invoices (which all share the same from/to
+// pair) and the submission's amount. Zero values (e.g. submission not found) signal
+// "nothing to post". Mirrors the invoices<->invoice_payment_submission join that
+// invoice_mutations.AcceptSubmission uses.
+func getPaymentSubmission(tx *gorm.DB, submissionID uint64) (*PaymentAcceptInfo, error) {
+	info := PaymentAcceptInfo{}
+	err := tx.
+		Table("payment_submissions ps").
+		Joins("left join invoice_payment_submission ips on ips.payment_submission_id = ps.id").
+		Joins("left join invoices i on i.id = ips.invoice_id").
+		Where("ps.id = ?", submissionID).
+		Select([]string{
+			"i.from_team_id as team_id",
+			"i.to_team_id as for_team_id",
+			"ps.amount",
+		}).
+		Limit(1).
 		Find(&info).
 		Error
 	if err != nil {
