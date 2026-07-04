@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/invoice_service/invoice_models"
+	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/user_service/access_interceptors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -158,7 +158,7 @@ func upsertDailyLog(
 	prev, newBal, delta float64,
 	now time.Time,
 ) error {
-	day := startOfLocalDay(now)
+	day := startOfJakartaDay(now)
 
 	// TeamBalanceDailyLog has no primary key in the model, so use Find +
 	// RowsAffected (First would add ORDER BY <pk> and fail on a key-less model).
@@ -258,9 +258,15 @@ func oppositeBalance(bt invoice_iface.BalanceType) (invoice_iface.BalanceType, e
 	}
 }
 
-// startOfLocalDay truncates t to midnight in its own (local) location.
-func startOfLocalDay(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+// jakartaZone is the canonical business timezone (Asia/Jakarta, fixed UTC+7, no DST).
+// Day-bucketing (daily log Day, timeline period buckets) is defined in this zone so it
+// is stable across deploy environments (the process/DB TZ does not shift the boundary).
+var jakartaZone = time.FixedZone("Asia/Jakarta", 7*60*60)
+
+// startOfJakartaDay truncates t to midnight in Asia/Jakarta.
+func startOfJakartaDay(t time.Time) time.Time {
+	j := t.In(jakartaZone)
+	return time.Date(j.Year(), j.Month(), j.Day(), 0, 0, 0, 0, jakartaZone)
 }
 
 // lockForUpdate applies SELECT ... FOR UPDATE row locking.
