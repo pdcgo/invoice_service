@@ -9,7 +9,9 @@ Status for this development is still in progress and not completely take over le
 
 
 ## Authentication & Authorization
-1. Use v2 roling system. not legacy system. [Read This](../../user_service/docs/readme.md)
+1. Use v2 roling system. not legacy system. for complete reference read [this](../../user_service/docs/readme.md#authentication--authorization)
+2. use interceptor that live in [here](../../user_service/access_interceptors/interceptor.go)
+3. DON'T use legacy interface on [this](../../shared/interfaces/authorization_iface/authorization.go)
 
 
 ## Connect RPC Spec
