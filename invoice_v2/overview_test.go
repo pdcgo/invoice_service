@@ -86,8 +86,8 @@ func TestOverview(t *testing.T) {
 					assert.Equal(t, float64(30), res.Msg.Data[2].GetPendingPayment())
 					assert.Equal(t, float64(25), res.Msg.Data[3].GetIncomingPayment()) // receivable-side pending: 15 + 10
 					assert.Equal(t, float64(25), res.Msg.Data[4].GetTotalPayment())
-					assert.Equal(t, float64(140), res.Msg.Data[5].GetTotalPayable())
-					assert.Equal(t, float64(70), res.Msg.Data[6].GetTotalReceivable())
+					assert.Equal(t, float64(-140), res.Msg.Data[5].GetTotalPayable().GetTotalAmount())
+					assert.Equal(t, float64(70), res.Msg.Data[6].GetTotalReceivable().GetTotalAmount())
 				})
 
 				t.Run("order follows the requested metric list", func(t *testing.T) {

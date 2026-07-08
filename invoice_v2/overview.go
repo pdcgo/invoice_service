@@ -116,25 +116,27 @@ func (s *invoiceServiceImpl) Overview(
 			if err := timeWindow(); err != nil {
 				return nil, err
 			}
-			v, err := sumCol(scope(db.Model(&invoice_models.BalanceChangeLog{}).
-				Where("balance_type = ?", invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE).
-				Where("created_at BETWEEN ? AND ?", start, end)), "change_amount")
+			total, change, err := totalChangeOverview(scope(db.Model(&invoice_models.BalanceChangeLog{})),
+				invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, start, end)
 			if err != nil {
 				return nil, err
 			}
-			item.Data = &invoice_iface.OverviewDataItem_TotalPayable{TotalPayable: math.Abs(v)}
+			item.Data = &invoice_iface.OverviewDataItem_TotalPayable{
+				TotalPayable: &invoice_iface.TeamBalanceTotalPayableItem{TotalAmount: total, Change: change},
+			}
 
 		case invoice_iface.OverviewMetricType_OVERVIEW_METRIC_TYPE_TOTAL_RECEIVABLE:
 			if err := timeWindow(); err != nil {
 				return nil, err
 			}
-			v, err := sumCol(scope(db.Model(&invoice_models.BalanceChangeLog{}).
-				Where("balance_type = ?", invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE).
-				Where("created_at BETWEEN ? AND ?", start, end)), "change_amount")
+			total, change, err := totalChangeOverview(scope(db.Model(&invoice_models.BalanceChangeLog{})),
+				invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE, start, end)
 			if err != nil {
 				return nil, err
 			}
-			item.Data = &invoice_iface.OverviewDataItem_TotalReceivable{TotalReceivable: v}
+			item.Data = &invoice_iface.OverviewDataItem_TotalReceivable{
+				TotalReceivable: &invoice_iface.TeamBalanceTotalReceivableItem{TotalAmount: total, Change: change},
+			}
 
 		default:
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid metric type"))
@@ -144,4 +146,40 @@ func (s *invoiceServiceImpl) Overview(
 	}
 
 	return connect.NewResponse(result), nil
+}
+
+func totalChangeOverview(
+	q *gorm.DB,
+	bt invoice_iface.BalanceType,
+	start, end time.Time,
+) (float64, []*invoice_iface.ChangeSumAmount, error) {
+	base := q.
+		Where("balance_type = ?", bt).
+		Where("created_at BETWEEN ? AND ?", start, end)
+
+	var rows []struct {
+		ChangeType       invoice_iface.BalanceChangeType
+		Val              float64
+		TransactionCount int64
+	}
+	err := base.
+		Select("change_type, COALESCE(SUM(change_amount), 0) as val, COUNT(*) as transaction_count").
+		Group("change_type").
+		Scan(&rows).
+		Error
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var total float64
+	change := make([]*invoice_iface.ChangeSumAmount, 0, len(rows))
+	for _, r := range rows {
+		total += r.Val
+		change = append(change, &invoice_iface.ChangeSumAmount{
+			ChangeType:       r.ChangeType,
+			Amount:           r.Val,
+			TransactionCount: r.TransactionCount,
+		})
+	}
+	return total, change, nil
 }

@@ -118,6 +118,9 @@ func sortForTeamIDs(
 	case *invoice_iface.TeamBalanceListSort_PendingPayment:
 		err = scope(db.Table("team_balances x").Where("x.balance_type = ?", btPayable)).
 			Order("x.pending_payment_amount "+dir).Limit(limit).Offset(offset).Pluck("x.for_team_id", &ids).Error
+	case *invoice_iface.TeamBalanceListSort_IncomingPayment:
+		err = scope(db.Table("team_balances x").Where("x.balance_type = ?", btReceivable)).
+			Order("x.pending_payment_amount "+dir).Limit(limit).Offset(offset).Pluck("x.for_team_id", &ids).Error
 
 	case *invoice_iface.TeamBalanceListSort_TotalPayment:
 		err = scope(db.Table("invoice_payments x").
@@ -208,6 +211,19 @@ func fetchTeamBalanceData(
 		}
 		return &invoice_iface.TeamBalanceData{Data: &invoice_iface.TeamBalanceData_PendingPayment{
 			PendingPayment: &invoice_iface.TeamBalancePendingPaymentData{Data: out},
+		}}, nil
+
+	case invoice_iface.TeamBalanceListDataType_TEAM_BALANCE_LIST_DATA_TYPE_INCOMING_PAYMENT:
+		m, err := scalarMap(balanceQuery(db, teamID, ids, btReceivable, "pending_payment_amount"))
+		if err != nil {
+			return nil, err
+		}
+		out := map[uint64]*invoice_iface.TeamBalanceIncomingPaymentItem{}
+		for id, v := range m {
+			out[id] = &invoice_iface.TeamBalanceIncomingPaymentItem{Amount: v}
+		}
+		return &invoice_iface.TeamBalanceData{Data: &invoice_iface.TeamBalanceData_IncomingPayment{
+			IncomingPayment: &invoice_iface.TeamBalanceIncomingPaymentData{Data: out},
 		}}, nil
 
 	case invoice_iface.TeamBalanceListDataType_TEAM_BALANCE_LIST_DATA_TYPE_TOTAL_PAYMENT:

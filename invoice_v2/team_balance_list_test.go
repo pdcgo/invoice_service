@@ -56,8 +56,8 @@ func TestTeamBalanceList(t *testing.T) {
 				assert.NoError(t, tx.Create(&[]invoice_models.TeamBalance{
 					{TeamID: 1, ForTeamID: 2, BalanceType: payable, Balance: -100, PendingPaymentAmount: 30},
 					{TeamID: 1, ForTeamID: 3, BalanceType: payable, Balance: -40, PendingPaymentAmount: 0},
-					{TeamID: 1, ForTeamID: 2, BalanceType: receivable, Balance: 70},
-					{TeamID: 1, ForTeamID: 4, BalanceType: receivable, Balance: 25},
+					{TeamID: 1, ForTeamID: 2, BalanceType: receivable, Balance: 70, PendingPaymentAmount: 15},
+					{TeamID: 1, ForTeamID: 4, BalanceType: receivable, Balance: 25, PendingPaymentAmount: 50},
 				}).Error)
 
 				adj := invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_ADJUSTMENT
@@ -173,6 +173,27 @@ func TestTeamBalanceList(t *testing.T) {
 					p2, err := svc.TeamBalanceList(ctx, req(2))
 					assert.NoError(t, err)
 					assert.Equal(t, []uint64{2}, p2.Msg.Ids)
+				})
+
+				t.Run("sort incoming_payment desc with incoming_payment data (receivable-side pending)", func(t *testing.T) {
+					res, err := svc.TeamBalanceList(ctx, connect.NewRequest(&invoice_iface.TeamBalanceListRequest{
+						TimeRange: window,
+						Filter:    &invoice_iface.TeamBalanceListFilter{TeamId: 1},
+						Sort: sortBy(invoice_iface.SortType_SORT_TYPE_DESC, &invoice_iface.TeamBalanceListSort{
+							S: &invoice_iface.TeamBalanceListSort_IncomingPayment{
+								IncomingPayment: invoice_iface.TeamBalanceIncomingPaymentSort_TEAM_BALANCE_INCOMING_PAYMENT_SORT_AMOUNT,
+							},
+						}),
+						DataTypes: []invoice_iface.TeamBalanceListDataType{
+							invoice_iface.TeamBalanceListDataType_TEAM_BALANCE_LIST_DATA_TYPE_INCOMING_PAYMENT,
+						},
+					}))
+					assert.NoError(t, err)
+					// receivable pending desc: 50 (team 4) before 15 (team 2)
+					assert.Equal(t, []uint64{4, 2}, res.Msg.Ids)
+					inc := res.Msg.Data[0].GetIncomingPayment().GetData()
+					assert.Equal(t, float64(50), inc[4].Amount)
+					assert.Equal(t, float64(15), inc[2].Amount)
 				})
 
 				t.Run("team_type filter narrows the counterparties", func(t *testing.T) {
