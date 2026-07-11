@@ -44,11 +44,24 @@ func (s *invoiceServiceImpl) CreateBalanceLog(
 	return connect.NewResponse(&invoice_iface.CreateBalanceLogResponse{}), nil
 }
 
+// OrderSource attributes the posted ledger legs to the order that caused them
+// (order-driven fees). When passed, both the primary and mirror legs get a
+// BalanceChangeOrderSource row keyed by their balance_change_log id. OrderSystem
+// disambiguates the legacy vs v3 order id-space. TeamID is the canonical ordering
+// team (constant across legs and create/cancel), not the leg's own team.
+type OrderSource struct {
+	OrderSystem invoice_iface.OrderSystem
+	OrderID     uint64
+	TeamID      uint64
+	WarehouseID uint64
+}
+
 // PostBalanceLog validates and posts a double-entry balance change within the
 // caller's transaction. It is the reusable core of the CreateBalanceLog RPC, so
 // it can be composed into any db.Transaction scope (e.g. event/push handlers).
 // It takes createdByID/now as params (no ctx identity lookup) so non-RPC callers
-// can supply a system id and their own clock.
+// can supply a system id and their own clock. An optional OrderSource attaches
+// order attribution to both ledger legs.
 func PostBalanceLog(
 	tx *gorm.DB,
 	teamID, forTeamID uint64,
@@ -58,6 +71,7 @@ func PostBalanceLog(
 	note string,
 	createdByID uint64,
 	now time.Time,
+	src ...*OrderSource,
 ) error {
 	if teamID == 0 || forTeamID == 0 {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("team_id and for_team_id are required"))
@@ -74,7 +88,11 @@ func PostBalanceLog(
 	if _, err := oppositeBalance(balanceType); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return postDoubleEntry(tx, teamID, forTeamID, balanceType, changeType, changeAmount, note, createdByID, now)
+	var orderSource *OrderSource
+	if len(src) > 0 {
+		orderSource = src[0]
+	}
+	return postDoubleEntry(tx, teamID, forTeamID, balanceType, changeType, changeAmount, note, createdByID, now, orderSource)
 }
 
 // postDoubleEntry posts a signed-mirror double entry for the (teamID, forTeamID)
@@ -89,15 +107,16 @@ func postDoubleEntry(
 	note string,
 	createdByID uint64,
 	now time.Time,
+	src *OrderSource,
 ) error {
 	counterType, err := oppositeBalance(bt)
 	if err != nil {
 		return err
 	}
-	if err := postEntry(tx, teamID, forTeamID, bt, changeType, amount, note, createdByID, now); err != nil {
+	if err := postEntry(tx, teamID, forTeamID, bt, changeType, amount, note, createdByID, now, src); err != nil {
 		return err
 	}
-	return postEntry(tx, forTeamID, teamID, counterType, changeType, -amount, note, createdByID, now)
+	return postEntry(tx, forTeamID, teamID, counterType, changeType, -amount, note, createdByID, now, src)
 }
 
 // postEntry applies a single signed delta to one (team, for_team, balance_type)
@@ -112,6 +131,7 @@ func postEntry(
 	note string,
 	createdByID uint64,
 	now time.Time,
+	src *OrderSource,
 ) error {
 	bal, err := lockOrCreateBalance(tx, teamID, forTeamID, bt, now)
 	if err != nil {
@@ -143,6 +163,22 @@ func postEntry(
 	}
 	if err := tx.Create(&logEntry).Error; err != nil {
 		return err
+	}
+
+	// Attach order attribution to this leg (both legs of a double entry carry the
+	// same OrderSource, so the order's full create+reverse fee history is queryable).
+	if src != nil {
+		source := invoice_models.BalanceChangeOrderSource{
+			BalanceChangeLogID: logEntry.ID,
+			OrderSystem:        src.OrderSystem,
+			OrderID:            src.OrderID,
+			TeamID:             src.TeamID,
+			WarehouseID:        src.WarehouseID,
+			CreatedAt:          now,
+		}
+		if err := tx.Create(&source).Error; err != nil {
+			return err
+		}
 	}
 
 	return upsertDailyLog(tx, teamID, forTeamID, bt, prev, newBal, delta, now)

@@ -244,6 +244,12 @@ func postCrossOrderBalance(tx *gorm.DB, orderID uint64, reverse bool, now time.T
 			tx, team, forTeam,
 			invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PRODUCT_FEE,
 			item.Total, bt, note, item.CreatedByID, now,
+			&invoice_v2.OrderSource{
+				OrderSystem: invoice_iface.OrderSystem_ORDER_SYSTEM_LEGACY,
+				OrderID:     orderID,
+				TeamID:      item.TeamID, // ordering team, constant on create + reverse
+				WarehouseID: item.WarehouseID,
+			},
 		); err != nil {
 			return err
 		}
@@ -260,6 +266,7 @@ func NewInvoicePushHttpHandler(handler InvoicePushHandler) InvoicePushHttpHandle
 type ProductCrossItem struct {
 	TeamID          uint64
 	ProductTeamID   uint64
+	WarehouseID     uint64
 	CreatedByID     uint64
 	OrderExternalID string
 	ProductName     string
@@ -276,12 +283,14 @@ func getProductCrossItem(tx *gorm.DB, orderID uint64) ([]*ProductCrossItem, erro
 		Table("order_items oi").
 		Joins("left join orders o on o.id = oi.order_id").
 		Joins("left join products p on p.id = oi.product_id").
+		Joins("left join inv_transactions it on it.id = o.invertory_tx_id").
 		Where("oi.owned != ?", true).
 		Where("oi.order_id = ?", orderID).
 		Select([]string{
 			"o.team_id",
 			"o.order_ref_id as order_external_id",
 			"p.team_id as product_team_id",
+			"it.warehouse_id",
 			"oi.count",
 			"oi.total",
 			"oi.product_name",
@@ -321,6 +330,12 @@ func postWarehouseFeeBalance(tx *gorm.DB, orderID uint64, reverse bool, now time
 		tx, team, forTeam,
 		invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_WAREHOUSE_FEE,
 		info.Fee, bt, note, info.CreatedByID, now,
+		&invoice_v2.OrderSource{
+			OrderSystem: invoice_iface.OrderSystem_ORDER_SYSTEM_LEGACY,
+			OrderID:     orderID,
+			TeamID:      info.TeamID, // ordering team, constant on create + reverse
+			WarehouseID: info.WarehouseID,
+		},
 	)
 }
 

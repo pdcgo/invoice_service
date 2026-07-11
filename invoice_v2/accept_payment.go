@@ -56,7 +56,7 @@ func (s *invoiceServiceImpl) AcceptPayment(
 
 		// Settle the debt portion: move the payer's PAYABLE toward zero.
 		if settle > 0 {
-			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, settle, note, completedBy, now); err != nil {
+			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_PAYABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, settle, note, completedBy, now, nil); err != nil {
 				return err
 			}
 		}
@@ -64,7 +64,7 @@ func (s *invoiceServiceImpl) AcceptPayment(
 		// receiver -> RECEIVABLE(payer, receiver), mirrored to PAYABLE(receiver, payer).
 		if surplus > 0 {
 			creditNote := fmt.Sprintf("payment #%d overpayment credit", p.ID)
-			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, surplus, creditNote, completedBy, now); err != nil {
+			if err := postDoubleEntry(tx, p.TeamID, p.ForTeamID, invoice_iface.BalanceType_BALANCE_TYPE_RECEIVABLE, invoice_iface.BalanceChangeType_BALANCE_CHANGE_TYPE_PAYMENT, surplus, creditNote, completedBy, now, nil); err != nil {
 				return err
 			}
 		}

@@ -59,6 +59,7 @@ func TestInvoicePushHandler(t *testing.T) {
 					&invoice_models.TeamBalance{},
 					&invoice_models.BalanceChangeLog{},
 					&invoice_models.TeamBalanceDailyLog{},
+					&invoice_models.BalanceChangeOrderSource{},
 					&invoice_models.InvoiceExactlyOnceLog{},
 				))
 

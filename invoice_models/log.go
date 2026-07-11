@@ -19,6 +19,21 @@ type BalanceChangeLog struct {
 	CreatedAt    time.Time `gorm:"index;not null"`
 }
 
+// BalanceChangeOrderSource attributes a BalanceChangeLog leg to the order that
+// caused it (order-driven fee posts: product_fee / warehouse_fee). One row per
+// ledger leg (PK = balance_change_log_id), so both the primary and mirror legs —
+// and their cancel reversals — are queryable by order. OrderSystem disambiguates
+// the shared numeric id-space between legacy orders and v3 orders. Purely
+// scope/filter; idempotency is enforced upstream per writer.
+type BalanceChangeOrderSource struct {
+	BalanceChangeLogID uint64                    `gorm:"primaryKey"`
+	OrderSystem        invoice_iface.OrderSystem `gorm:"not null"`
+	OrderID            uint64                    `gorm:"index:idx_bcos_order;not null"`
+	TeamID             uint64                    `gorm:"not null"` // ordering team, canonical across legs
+	WarehouseID        uint64                    `gorm:"index;not null"`
+	CreatedAt          time.Time                 `gorm:"not null"`
+}
+
 type TeamBalance struct {
 	ID                   uint64                    `gorm:"primaryKey"`
 	TeamID               uint64                    `gorm:"index;not null"`
