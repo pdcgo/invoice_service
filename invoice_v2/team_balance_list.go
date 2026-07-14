@@ -3,6 +3,7 @@ package invoice_v2
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -74,16 +75,28 @@ func sortForTeamIDs(
 	}
 	limit, offset := pageLimitOffset(filter.GetPage())
 	typeFilter := dbTeamType(filter.GetTeamType())
+	search := strings.TrimSpace(filter.GetQ())
 
-	// scope adds team_id / for_team_id / optional teams.type filter onto a query
-	// whose primary table is aliased "x" with a for_team_id column.
+	// Both the type filter and the name search read columns off teams, so either
+	// one requires the join. Without this the search would silently match
+	// everything on the sorts that don't otherwise join teams.
+	needTeamJoin := typeFilter != "" || search != ""
+
+	// scope adds team_id / for_team_id / optional teams.type + name filters onto a
+	// query whose primary table is aliased "x" with a for_team_id column.
 	scope := func(q *gorm.DB) *gorm.DB {
 		q = q.Where("x.team_id = ?", filter.TeamId)
 		if filter.ForTeamId > 0 {
 			q = q.Where("x.for_team_id = ?", filter.ForTeamId)
 		}
+		if needTeamJoin {
+			q = q.Joins("JOIN teams t ON t.id = x.for_team_id")
+		}
 		if typeFilter != "" {
-			q = q.Joins("JOIN teams t ON t.id = x.for_team_id").Where("t.type = ?", typeFilter)
+			q = q.Where("t.type = ?", typeFilter)
+		}
+		if search != "" {
+			q = q.Where("t.name ILIKE ?", "%"+search+"%")
 		}
 		return q
 	}
@@ -97,6 +110,8 @@ func sortForTeamIDs(
 		if sv.Common == invoice_iface.TeamBalanceCommonSort_TEAM_BALANCE_COMMON_SORT_TEAM_TYPE {
 			col = "t.type"
 		}
+		// This branch already joins teams to sort on it, so it takes the type and
+		// name predicates directly — routing it through scope would join twice.
 		q := db.Table("team_balances x").
 			Joins("JOIN teams t ON t.id = x.for_team_id").
 			Where("x.team_id = ?", filter.TeamId)
@@ -106,8 +121,16 @@ func sortForTeamIDs(
 		if typeFilter != "" {
 			q = q.Where("t.type = ?", typeFilter)
 		}
-		err = q.Group("x.for_team_id, "+col).Order(col+" "+dir).
-			Limit(limit).Offset(offset).Pluck("x.for_team_id", &ids).Error
+		if search != "" {
+			q = q.Where("t.name ILIKE ?", "%"+search+"%")
+		}
+		err = q.
+			Group("x.for_team_id, "+col).
+			Order(col + " " + dir).
+			Limit(limit).
+			Offset(offset).
+			Pluck("x.for_team_id", &ids).
+			Error
 
 	case *invoice_iface.TeamBalanceListSort_Payable:
 		err = scope(db.Table("team_balances x").Where("x.balance_type = ?", btPayable)).
@@ -267,9 +290,45 @@ func fetchTeamBalanceData(
 			TotalReceivable: &invoice_iface.TeamBalanceTotalReceivableData{Data: recv},
 		}}, nil
 
+	case invoice_iface.TeamBalanceListDataType_TEAM_BALANCE_LIST_DATA_TYPE_OWE_LIMIT_AS_CREDITOR:
+		// The scoped team is the creditor: what it lets each counterparty owe it.
+		evals, err := EvaluateOweLimitsAsCreditor(db, teamID, ids)
+		if err != nil {
+			return nil, err
+		}
+		return &invoice_iface.TeamBalanceData{Data: &invoice_iface.TeamBalanceData_OweLimitAsCreditor{
+			OweLimitAsCreditor: &invoice_iface.TeamBalanceOweLimitAsCreditorData{Data: oweLimitItems(evals)},
+		}}, nil
+
+	case invoice_iface.TeamBalanceListDataType_TEAM_BALANCE_LIST_DATA_TYPE_OWE_LIMIT_AS_DEBTOR:
+		// The scoped team is the debtor: what each counterparty lets it owe them.
+		evals, err := EvaluateOweLimitsAsDebtor(db, teamID, ids)
+		if err != nil {
+			return nil, err
+		}
+		return &invoice_iface.TeamBalanceData{Data: &invoice_iface.TeamBalanceData_OweLimitAsDebtor{
+			OweLimitAsDebtor: &invoice_iface.TeamBalanceOweLimitAsDebtorData{Data: oweLimitItems(evals)},
+		}}, nil
+
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid data type"))
 	}
+}
+
+// oweLimitItems converts resolved owe limits to their proto items, keyed by
+// counterparty id.
+func oweLimitItems(evals map[uint64]*OweLimitEval) map[uint64]*invoice_iface.TeamBalanceOweLimitItem {
+	out := make(map[uint64]*invoice_iface.TeamBalanceOweLimitItem, len(evals))
+	for id, e := range evals {
+		out[id] = &invoice_iface.TeamBalanceOweLimitItem{
+			Threshold:    e.Threshold,
+			ActiveAmount: e.ActiveAmount,
+			Allow:        e.Allow,
+			Configured:   e.Configured,
+			IsDefault:    e.IsDefault,
+		}
+	}
+	return out
 }
 
 // scoped restricts a query to the team and the given for_team_ids.
