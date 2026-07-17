@@ -3,12 +3,12 @@ package invoice_v2
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/pdcgo/schema/services/common/v1"
 	invoice_iface "github.com/pdcgo/schema/services/invoice_iface/v2"
 	"github.com/pdcgo/shared/db_connect"
-	"github.com/pdcgo/shared/db_models"
 	"gorm.io/gorm"
 )
 
@@ -30,38 +30,68 @@ func (s *invoiceServiceImpl) OweLimitCustomList(
 	}
 	db := s.db.WithContext(ctx)
 
-	var rows []db_models.OweLimitConfiguration
+	type oweRow struct {
+		ID        uint64
+		ForTeamID uint64
+		Threshold float64
+	}
+	var rows []oweRow
+
+	const thresholdExpr = "COALESCE(olc.threshold, olcd.threshold, 0)"
+
 	paginated, pageInfo, err := db_connect.SetPaginationQuery(db, func() (*gorm.DB, error) {
 		query := db.
-			Model(&db_models.OweLimitConfiguration{}).
-			Scopes(func(d *gorm.DB) *gorm.DB {
-				// is_default IS NOT TRUE: the column is nullable in the live schema and
-				// gorm scans NULL to false, so a NULL row counts as custom.
-				return d.
-					Where("team_id = ?", pay.TeamId).
-					Where("is_default IS NOT TRUE").
-					Where("for_team_id IS NOT NULL")
-			})
-		return query, nil
+			Table("teams t").
+			Joins("left join owe_limit_configurations olc on olc.for_team_id = t.id and olc.team_id = ? and olc.is_default != true", pay.TeamId).
+			Joins("left join owe_limit_configurations olcd on olcd.team_id = ? and olcd.is_default = true and olc.for_team_id is null", pay.TeamId).
+			Where("t.id != ?", pay.TeamId).
+			Where("t.type = ?", "selling")
+
+		search := strings.TrimSpace(pay.GetFilter().GetQ())
+		if search != "" {
+			query = query.Where("t.name ILIKE ?", "%"+search+"%")
+		}
+
+		return query.Select([]string{
+			"COALESCE(olc.id, olcd.id) as id",
+			"t.id as for_team_id",
+			thresholdExpr + " as threshold",
+		}), nil
 	}, pay.Page)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := paginated.Order("id DESC").Find(&rows).Error; err != nil {
+	// Sort column, defaulting to threshold when unspecified. Team name breaks ties so
+	// the order — and therefore paging — is stable.
+	var orderCol string
+	switch pay.GetSort().GetType() {
+	case invoice_iface.OweLimitCustomSortType_OWE_LIMIT_CUSTOM_SORT_TYPE_THRESHOLD:
+		orderCol = thresholdExpr
+	default:
+		orderCol = thresholdExpr
+	}
+
+	orderDir := "desc"
+	if pay.GetSort().GetSortType() == invoice_iface.SortType_SORT_TYPE_ASC {
+		orderDir = "asc"
+	}
+
+	err = paginated.
+		Order(orderCol + " " + orderDir + " nulls last, t.name asc").
+		Scan(&rows).
+		Error
+	if err != nil {
 		return nil, err
 	}
 
 	result.PageInfo = pageInfo
 	for _, row := range rows {
-		item := &invoice_iface.OweLimitCustomItem{
+		result.Items = append(result.Items, &invoice_iface.OweLimitCustomItem{
 			Id:        row.ID,
+			ForTeamId: row.ForTeamID,
 			Threshold: row.Threshold,
-		}
-		if row.ForTeamID != nil {
-			item.ForTeamId = *row.ForTeamID
-		}
-		result.Items = append(result.Items, item)
+		})
 	}
 
 	return connect.NewResponse(result), nil
