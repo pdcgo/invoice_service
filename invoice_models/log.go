@@ -29,9 +29,36 @@ type BalanceChangeOrderSource struct {
 	BalanceChangeLogID uint64                    `gorm:"primaryKey"`
 	OrderSystem        invoice_iface.OrderSystem `gorm:"not null"`
 	OrderID            uint64                    `gorm:"index:idx_bcos_order;not null"`
+	OrderItemID        uint64                    // 0 when the fee is not attributable to one item
 	TeamID             uint64                    `gorm:"not null"` // ordering team, canonical across legs
 	WarehouseID        uint64                    `gorm:"index;not null"`
 	CreatedAt          time.Time                 `gorm:"not null"`
+}
+
+// BalanceChangeRestockSource attributes a BalanceChangeLog leg to the inventory
+// transaction that caused it (cod_fee, posted on RestockAccepted). Same shape and
+// contract as BalanceChangeOrderSource — one row per ledger leg — but keyed by the
+// inv_transactions id the event carries, so there is no order system to
+// disambiguate. Purely scope/filter; idempotency is enforced upstream per writer.
+type BalanceChangeRestockSource struct {
+	BalanceChangeLogID uint64    `gorm:"primaryKey"`
+	TxID               uint64    `gorm:"index;not null"`
+	TxItemID           uint64    // 0 when the fee is transaction-level (cod fee always is)
+	TeamID             uint64    `gorm:"not null"`
+	WarehouseID        uint64    `gorm:"index;not null"`
+	CreatedAt          time.Time `gorm:"not null"`
+}
+
+// BalanceChangeBrokenSource attributes a BalanceChangeLog leg to the inventory
+// transaction that caused it (stock_problem). Mirrors BalanceChangeRestockSource;
+// kept separate so the two fee sources stay independently queryable.
+type BalanceChangeBrokenSource struct {
+	BalanceChangeLogID uint64    `gorm:"primaryKey"`
+	TxID               uint64    `gorm:"index;not null"`
+	TxItemID           uint64    // 0 when the problem is not attributable to one item
+	TeamID             uint64    `gorm:"not null"`
+	WarehouseID        uint64    `gorm:"index;not null"`
+	CreatedAt          time.Time `gorm:"not null"`
 }
 
 type TeamBalance struct {
