@@ -15,10 +15,22 @@ func (s *invoiceServiceImpl) GetBalanceChangeSourceByChangeIds(
 ) (*connect.Response[invoice_iface.GetBalanceChangeSourceByChangeIdsResponse], error) {
 	pay := req.Msg
 	db := s.db.WithContext(ctx)
-	ids := pay.GetBalanceChangeLogIds()
-	teamID := pay.GetTeamId()
 
 	entries := map[uint64]*invoice_iface.BalanceChangeSourceEntry{}
+
+	var ownedIDs []uint64
+	err := db.
+		Model(&invoice_models.BalanceChangeLog{}).
+		Where("id IN ? AND team_id = ?", pay.GetBalanceChangeLogIds(), pay.GetTeamId()).
+		Pluck("id", &ownedIDs).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	if len(ownedIDs) == 0 {
+		return connect.NewResponse(&invoice_iface.GetBalanceChangeSourceByChangeIdsResponse{Entries: entries}), nil
+	}
+
 	entryFor := func(id uint64) *invoice_iface.BalanceChangeSourceEntry {
 		e := entries[id]
 		if e == nil {
@@ -28,12 +40,12 @@ func (s *invoiceServiceImpl) GetBalanceChangeSourceByChangeIds(
 		return e
 	}
 
-	scoped := func(q *gorm.DB) *gorm.DB {
-		return q.Where("balance_change_log_id IN ? AND team_id = ?", ids, teamID)
+	byOwned := func(q *gorm.DB) *gorm.DB {
+		return q.Where("balance_change_log_id IN ?", ownedIDs)
 	}
 
 	var orderRows []invoice_models.BalanceChangeOrderSource
-	err := scoped(db.Model(&invoice_models.BalanceChangeOrderSource{})).Find(&orderRows).Error
+	err = byOwned(db.Model(&invoice_models.BalanceChangeOrderSource{})).Find(&orderRows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +57,7 @@ func (s *invoiceServiceImpl) GetBalanceChangeSourceByChangeIds(
 	}
 
 	var restockRows []invoice_models.BalanceChangeRestockSource
-	err = scoped(db.Model(&invoice_models.BalanceChangeRestockSource{})).Find(&restockRows).Error
+	err = byOwned(db.Model(&invoice_models.BalanceChangeRestockSource{})).Find(&restockRows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +69,7 @@ func (s *invoiceServiceImpl) GetBalanceChangeSourceByChangeIds(
 	}
 
 	var brokenRows []invoice_models.BalanceChangeBrokenSource
-	err = scoped(db.Model(&invoice_models.BalanceChangeBrokenSource{})).Find(&brokenRows).Error
+	err = byOwned(db.Model(&invoice_models.BalanceChangeBrokenSource{})).Find(&brokenRows).Error
 	if err != nil {
 		return nil, err
 	}
